@@ -30,6 +30,7 @@ from inputs import (
 )
 from audio_mixer import MicAudioMonitor, list_audio_devices
 from recorder import VAAPIRecorder, VAAPIStreamer, VAAPIReplayRecorder
+from web_remote import WebRemoteController, WebRemoteDialog
 
 
 DARK_STYLESHEET = """
@@ -1477,6 +1478,10 @@ class LiteMixMainWindow(QMainWindow):
             self._init_default_inputs()
         self._setup_shortcuts()
 
+        # Integrierter HTTP-Web-Controller für iPad / Tablet / Browser (mit Token & QR-Code)
+        self.web_remote = WebRemoteController(self)
+        self._refresh_remote_button_style()
+
         # 30 FPS Master Render Loop (PreciseTimer für ruckelfreies Timing)
         self.render_timer = QTimer(self)
         self.render_timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -1719,6 +1724,7 @@ class LiteMixMainWindow(QMainWindow):
         set_menu.addAction("🔄  Letztes gespeichertes Set laden", self.load_last_preset)
         set_menu.addSeparator()
         set_menu.addAction("⌨️  Tastenkürzel frei belegen...", self.open_shortcuts_dialog)
+        set_menu.addAction("📱  Web-Fernsteuerung (iPad / QR-Code)...", self.open_web_remote_dialog)
         set_menu.addAction("🔄  Auf Updates prüfen (GitHub)...", self.check_for_updates)
         set_menu.addSeparator()
         set_menu.addAction("✨  Standard-Set wiederherstellen", self.reset_to_default_set)
@@ -1730,6 +1736,12 @@ class LiteMixMainWindow(QMainWindow):
         self.btn_shortcuts.setToolTip("Tastenkürzel (Hotkeys) für Buttons & Funktionen frei belegen")
         self.btn_shortcuts.clicked.connect(self.open_shortcuts_dialog)
         foot_layout.addWidget(self.btn_shortcuts)
+
+        self.btn_remote = QPushButton("📱")
+        self.btn_remote.setObjectName("FooterIconBtn")
+        self.btn_remote.setToolTip("Web-Fernsteuerung für iPad / Tablet / Browser (QR-Code, Link & Zugangs-Token)")
+        self.btn_remote.clicked.connect(self.open_web_remote_dialog)
+        foot_layout.addWidget(self.btn_remote)
 
         self.btn_update = QPushButton("🔄")
         self.btn_update.setObjectName("FooterIconBtn")
@@ -2943,6 +2955,10 @@ class LiteMixMainWindow(QMainWindow):
         self.clip_vu.set_level(clip_lvl)
         self.mst_vu.set_level(mst_lvl)
 
+        # 8b. Web-Fernsteuerung (iPad / Browser): Befehle ausführen & Vorschaubilder aktualisieren
+        if hasattr(self, "web_remote") and self.web_remote:
+            self.web_remote.tick_from_main_thread(prv_frame, pgm_canvas, self._frame_count)
+
         # 9. Update FPS & CPU Usage once per second
         self._frame_count += 1
         if now - self._last_fps_time >= 1.0:
@@ -2967,6 +2983,31 @@ class LiteMixMainWindow(QMainWindow):
                 f"Live: {self._measured_fps:.1f} FPS | "
                 f"App CPU-Last: {self._cpu_percent:.1f} %"
             )
+
+    # ================= WEB-FERNSTEUERUNG (iPAD / TABLET / BROWSER) =================
+    def _refresh_remote_button_style(self):
+        if not hasattr(self, "btn_remote") or not self.btn_remote:
+            return
+        running = hasattr(self, "web_remote") and self.web_remote and self.web_remote.is_running()
+        if running:
+            url = self.web_remote.get_access_url()
+            self.btn_remote.setToolTip(
+                f"📱 Web-Fernsteuerung aktiv: {url}\nKlicken für QR-Code & Zugangs-Token"
+            )
+            self.btn_remote.setStyleSheet(
+                "font-size: 16px; padding: 2px 10px; min-width: 38px; min-height: 28px; "
+                "background-color: #164836; border: 1px solid #28b87a; color: #ffffff;"
+            )
+        else:
+            self.btn_remote.setToolTip(
+                "📱 Web-Fernsteuerung (pausiert) – Klicken zum Aktivieren & QR-Code anzeigen"
+            )
+            self.btn_remote.setStyleSheet("")
+
+    def open_web_remote_dialog(self):
+        dlg = WebRemoteDialog(self, self.web_remote)
+        dlg.exec()
+        self._refresh_remote_button_style()
 
     # ================= GITHUB AUTO-UPDATER =================
     def _app_dir(self) -> str:
@@ -3175,6 +3216,8 @@ class LiteMixMainWindow(QMainWindow):
         """Beendet alle Pipelines sauber und startet LiteMix HD neu."""
         self._save_last_preset_silent()
         self.render_timer.stop()
+        if hasattr(self, "web_remote") and self.web_remote:
+            self.web_remote.stop_server()
         self.replay_recorder.stop()
         self.streamer.stop()
         self.recorder.stop()
@@ -3186,6 +3229,8 @@ class LiteMixMainWindow(QMainWindow):
     def closeEvent(self, event):
         self._save_last_preset_silent()
         self.render_timer.stop()
+        if hasattr(self, "web_remote") and self.web_remote:
+            self.web_remote.stop_server()
         self.replay_recorder.stop()
         self.streamer.stop()
         self.recorder.stop()

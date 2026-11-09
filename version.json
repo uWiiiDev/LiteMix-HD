@@ -1,7 +1,7 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "Erstveröffentlichung von LiteMix HD v0.1.0: Live-Video-Mischer, VA-API Hardware-Recorder & Streamer, Zeitlupen-Replays & Highlights, interaktive Overlays, Bauchbinden-Templates, frei belegbare Hotkeys und integrierte GitHub-Updatefunktion."
+  "changelog": "Neu in v0.2.0: Integrierte Web-Fernsteuerung (📱) für iPad, Tablet & Browser mit QR-Code, Sicherheits-Token, Live-Vorschaubildern (Preview/Program), Regie-Deck (CUT, FADE, FTB, Replay, Stream, Rec), Medien-Transportsteuerung und Bauchbinden-Editor."
 }
