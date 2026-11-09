@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+*.deb
+*.mp4
+*.mkv
+*.flv
+*.ts
+*~
+.DS_Store
