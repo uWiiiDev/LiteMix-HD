@@ -17,10 +17,11 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QLineEdit, QSpinBox, QCheckBox, QFrame, QApplication, QMessageBox
 )
+from i18n import tr, get_lang, toggle_lang
 
 
 def get_local_lan_ip() -> str:
-    """Ermittelt zuverlässig die lokale LAN-/WLAN-IPv4-Adresse dieses Rechners."""
+    """Reliably determine the local LAN/Wi-Fi IPv4 address of this machine."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.settimeout(0.5)
@@ -51,8 +52,8 @@ class _QRcodeStruct(Structure):
 
 def generate_qr_qimage(text: str, box_size: int = 240, border_modules: int = 3) -> QImage:
     """
-    Erzeugt ein gestochen scharfes QR-Code-QImage über libqrencode.so.4 (mit Fallback).
-    Jedes Smartphone / iPad kann diesen QR-Code direkt mit der Kamera scannen.
+    Generate a crisp QR Code QImage via libqrencode.so.4 (with fallback).
+    Any smartphone or iPad can scan this QR code directly using the built-in camera app.
     """
     matrix: list[list[bool]] | None = None
     try:
@@ -76,7 +77,7 @@ def generate_qr_qimage(text: str, box_size: int = 240, border_modules: int = 3) 
             finally:
                 lib.QRcode_free(ptr)
     except Exception as e:
-        print(f"[WebRemote] libqrencode Hinweis: {e}")
+        print(f"[WebRemote] libqrencode note: {e}")
 
     img = QImage(box_size, box_size, QImage.Format.Format_ARGB32_Premultiplied)
     img.fill(QColor(255, 255, 255))
@@ -250,7 +251,7 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
   .aud-row { display: flex; align-items: center; gap: 6px; }
   .aud-row input[type=range] { flex: 1; accent-color: #00b0ff; }
 
-  /* Modal für Bauchbinden-Text */
+  /* Lower-third editor modal */
   .modal-bg {
     position: fixed; inset: 0; background: rgba(0,0,0,0.72);
     display: none; align-items: center; justify-content: center; z-index: 99; padding: 16px;
@@ -274,7 +275,8 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
     <span id="appTitle">LiteMix HD – iPad &amp; Web Remote</span>
   </div>
   <div style="display:flex; align-items:center; gap:8px;">
-    <button class="ibtn" onclick="toggleMonitors()" id="btnToggleMon">📺 Vorschau-Bilder: AN</button>
+    <button class="ibtn" onclick="sendAction({cmd:'toggle_lang'})" id="btnLang">🌐 DE</button>
+    <button class="ibtn" onclick="toggleMonitors()" id="btnToggleMon">📺 Vorschau: AN</button>
     <span id="telemetry" class="telemetry">Verbinde...</span>
   </div>
 </div>
@@ -283,7 +285,7 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
   <!-- PREVIEW MONITOR -->
   <div class="mon-card prv" id="prvCard">
     <div class="mon-head">
-      <span>● PREVIEW (VORSCHAU)</span>
+      <span id="prvHeadTitle">● PREVIEW (VORSCHAU)</span>
       <span id="prvLabel" style="color:#d4dce8;font-weight:600;">--</span>
     </div>
     <div class="mon-img-wrap" id="prvImgWrap" onclick="sendAction({cmd:'prv_play_pause'})">
@@ -300,7 +302,7 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
         <span class="timecode" id="prvTimecode">00:00/00:00</span>
       </div>
       <div class="trans-row" id="prvSpeedRow" style="display:none;">
-        <span style="font-size:11px;color:#929db3;">⏱ Tempo:</span>
+        <span style="font-size:11px;color:#929db3;">⏱</span>
         <button class="ibtn" id="spd025" onclick="sendAction({cmd:'prv_rate', rate:0.25})">0.25×</button>
         <button class="ibtn" id="spd050" onclick="sendAction({cmd:'prv_rate', rate:0.50})">0.5×</button>
         <button class="ibtn" id="spd075" onclick="sendAction({cmd:'prv_rate', rate:0.75})">0.75×</button>
@@ -309,13 +311,13 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- CENTER REGIE-DECK -->
+  <!-- CENTER SWITCHER DECK -->
   <div class="center-deck">
     <div class="deck-row">
       <button class="btn btn-cut" onclick="sendAction({cmd:'cut'})">CUT</button>
       <button class="btn btn-fade" onclick="sendAction({cmd:'fade'})">FADE</button>
     </div>
-    <button class="btn btn-ftb" id="btnFtb" onclick="sendAction({cmd:'ftb'})">FTB (Schwarzblende)</button>
+    <button class="btn btn-ftb" id="btnFtb" onclick="sendAction({cmd:'ftb'})">FTB</button>
     <div style="display:flex;align-items:center;gap:6px;">
       <span style="font-size:11px;color:#929db3;">T-Bar</span>
       <input type="range" id="tbarSlider" min="0" max="100" value="0" style="flex:1;accent-color:#38a3eb;"
@@ -328,14 +330,14 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
     </div>
     <div class="deck-row">
       <button class="ibtn" id="btnMicMute" onclick="sendAction({cmd:'mic_mute'})">🎙️ MIC</button>
-      <button class="ibtn" id="btnClipMute" onclick="sendAction({cmd:'clip_mute'})">🎬 VID-TON</button>
+      <button class="ibtn" id="btnClipMute" onclick="sendAction({cmd:'clip_mute'})">🎬 VID</button>
     </div>
   </div>
 
   <!-- PROGRAM MONITOR -->
   <div class="mon-card pgm" id="pgmCard">
     <div class="mon-head">
-      <span>● PROGRAM (LIVE)</span>
+      <span id="pgmHeadTitle">● PROGRAM (LIVE)</span>
       <span id="pgmLabel" style="color:#d4dce8;font-weight:600;">--</span>
     </div>
     <div class="mon-img-wrap" id="pgmImgWrap">
@@ -349,29 +351,29 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
 </div>
 
 <div class="section-title">
-  <span>Quellen-Matrix &amp; Audio-Steuerung</span>
+  <span id="matrixTitleLbl">Quellen-Matrix &amp; Audio-Steuerung</span>
   <span id="sourceCountLbl"></span>
 </div>
 <div class="inputs-grid" id="inputsGrid"></div>
 
-<!-- Modal zum Bearbeiten einer Bauchbinde -->
+<!-- Lower-Third Editor Modal -->
 <div class="modal-bg" id="ltModal">
   <div class="modal">
-    <div style="font-weight:800;font-size:15px;">🏷️ Bauchbinde bearbeiten</div>
+    <div style="font-weight:800;font-size:15px;" id="ltModalTitle">🏷️ Bauchbinde bearbeiten</div>
     <input type="hidden" id="ltIdx">
     <label style="font-size:12px;color:#98a4bc;">Design-Template:</label>
     <select id="ltTpl">
-      <option value="0">1 – Klassisch Broadcast (Akzentbalken &amp; Verlauf)</option>
-      <option value="1">2 – Modern Kompakt (Abgerundete Pill-Card)</option>
-      <option value="2">3 – Breaking / Sport Banner (Zweizeiliger Balken)</option>
+      <option value="0">1 – Studio Cyan (Classic)</option>
+      <option value="1">2 – TV News / Live Banner (Red/White)</option>
+      <option value="2">3 – Modern Minimal / Talk Pill (Emerald)</option>
     </select>
-    <label style="font-size:12px;color:#98a4bc;">Hauptzeile (Name / Titel):</label>
+    <label style="font-size:12px;color:#98a4bc;" id="ltLblMain">Hauptzeile (Name / Titel):</label>
     <input type="text" id="ltTitle" placeholder="Max Mustermann">
-    <label style="font-size:12px;color:#98a4bc;">Unterzeile (Info / Funktion):</label>
-    <input type="text" id="ltSub" placeholder="Live-Kommentar">
+    <label style="font-size:12px;color:#98a4bc;" id="ltLblSub">Unterzeile (Info / Funktion):</label>
+    <input type="text" id="ltSub" placeholder="Live Studio">
     <div style="display:flex;gap:8px;margin-top:4px;">
-      <button class="btn" style="flex:1;" onclick="closeLtModal()">Abbrechen</button>
-      <button class="btn" style="flex:1;background:#1b5e3c;border-color:#289c60;" onclick="saveLtModal()">✓ Übernehmen</button>
+      <button class="btn" style="flex:1;" onclick="closeLtModal()" id="ltBtnCancel">Abbrechen</button>
+      <button class="btn" style="flex:1;background:#1b5e3c;border-color:#289c60;" onclick="saveLtModal()" id="ltBtnSave">✓ Übernehmen</button>
     </div>
   </div>
 </div>
@@ -383,6 +385,7 @@ let showMonitors = true;
 let prvScrubDragging = false;
 let prvDuration = 0.0;
 let lastInputsSig = '';
+let currentLang = 'de';
 
 function apiUrl(path) {
   const sep = path.includes('?') ? '&' : '?';
@@ -400,11 +403,18 @@ async function sendAction(payload) {
   } catch (e) {}
 }
 
+function updateMonBtnText() {
+  const isEn = (currentLang === 'en');
+  document.getElementById('btnToggleMon').textContent = showMonitors
+    ? (isEn ? '📺 Monitors: ON' : '📺 Vorschau: AN')
+    : (isEn ? '📺 Monitors: OFF' : '📺 Vorschau: AUS');
+}
+
 function toggleMonitors() {
   showMonitors = !showMonitors;
   document.getElementById('prvImgWrap').style.display = showMonitors ? 'flex' : 'none';
   document.getElementById('pgmImgWrap').style.display = showMonitors ? 'flex' : 'none';
-  document.getElementById('btnToggleMon').textContent = showMonitors ? '📺 Vorschau-Bilder: AN' : '📺 Vorschau-Bilder: AUS';
+  updateMonBtnText();
 }
 
 function fmtTime(sec) {
@@ -451,8 +461,9 @@ function saveLtModal() {
 }
 
 function renderInputsGrid(st) {
+  const isEn = (currentLang === 'en');
   const grid = document.getElementById('inputsGrid');
-  const sig = st.inputs.map(i => `${i.index}:${i.type}:${i.name}:${i.playable}:${i.has_audio}:${i.is_lt}`).join('|');
+  const sig = currentLang + '|' + st.inputs.map(i => `${i.index}:${i.type}:${i.name}:${i.playable}:${i.has_audio}:${i.is_lt}`).join('|');
   if (sig !== lastInputsSig) {
     lastInputsSig = sig;
     grid.innerHTML = '';
@@ -463,7 +474,7 @@ function renderInputsGrid(st) {
 
       let btnsHtml = '';
       if (inp.is_audio_only && inp.type !== 'AudioFileInput') {
-        btnsHtml = `<div style="font-size:11px;color:#929db3;">🎧 Live Audio-Eingang</div>`;
+        btnsHtml = `<div style="font-size:11px;color:#929db3;">🎧 ${isEn ? 'Live Audio Input' : 'Live Audio-Eingang'}</div>`;
       } else if (inp.type === 'AudioFileInput') {
         btnsHtml = `
           <div class="tile-btns" style="grid-template-columns: 1fr 1fr;">
@@ -497,7 +508,7 @@ function renderInputsGrid(st) {
 
       let ltHtml = '';
       if (inp.is_lt) {
-        ltHtml = `<button class="ibtn" id="b_lt_${inp.index}">✎ Bauchbinden-Text ändern</button>`;
+        ltHtml = `<button class="ibtn" id="b_lt_${inp.index}">✎ ${isEn ? 'Edit Lower Third' : 'Bauchbinden-Text ändern'}</button>`;
       }
 
       let audHtml = '';
@@ -526,7 +537,6 @@ function renderInputsGrid(st) {
     });
   }
 
-  // Update dynamic states without recreating DOM
   st.inputs.forEach(inp => {
     const isPgm = (inp.index === st.pgm_idx);
     const isPrv = (inp.index === st.prv_idx);
@@ -585,13 +595,26 @@ async function pollState() {
     const resp = await fetch(apiUrl('/api/state'), {cache: 'no-store'});
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const st = await resp.json();
+    currentLang = st.lang || 'de';
+    const isEn = (currentLang === 'en');
+
     document.getElementById('connDot').className = 'dot';
     document.getElementById('appTitle').textContent = `LiteMix HD v${st.version} – Remote`;
+    document.getElementById('btnLang').textContent = isEn ? '🌐 EN' : '🌐 DE';
+    updateMonBtnText();
+    document.getElementById('prvHeadTitle').textContent = isEn ? '● PREVIEW' : '● PREVIEW (VORSCHAU)';
+    document.getElementById('matrixTitleLbl').textContent = isEn ? 'Input Sources & Audio Control' : 'Quellen-Matrix & Audio-Steuerung';
+    document.getElementById('ltModalTitle').textContent = isEn ? '🏷️ Edit Lower Third' : '🏷️ Bauchbinde bearbeiten';
+    document.getElementById('ltLblMain').textContent = isEn ? 'Headline (Name / Title):' : 'Hauptzeile (Name / Titel):';
+    document.getElementById('ltLblSub').textContent = isEn ? 'Subtitle (Role / Info):' : 'Unterzeile (Info / Funktion):';
+    document.getElementById('ltBtnCancel').textContent = isEn ? 'Cancel' : 'Abbrechen';
+    document.getElementById('ltBtnSave').textContent = isEn ? '✓ Apply' : '✓ Übernehmen';
+
     document.getElementById('telemetry').textContent = st.stats_text || '';
-    document.getElementById('recStatusLbl').textContent = st.rec_status || 'Bereit';
+    document.getElementById('recStatusLbl').textContent = st.rec_status || '';
     document.getElementById('prvLabel').textContent = st.prv_label || '--';
     document.getElementById('pgmLabel').textContent = st.pgm_label || '--';
-    document.getElementById('sourceCountLbl').textContent = `${st.inputs.length} Quellen`;
+    document.getElementById('sourceCountLbl').textContent = isEn ? `${st.inputs.length} Sources` : `${st.inputs.length} Quellen`;
 
     document.getElementById('btnFtb').className = 'btn btn-ftb' + (st.ftb_active ? ' active' : '');
     const btnRep = document.getElementById('btnReplay');
@@ -607,9 +630,9 @@ async function pollState() {
     btnStr.textContent = st.streaming ? '⏹📡 ON AIR' : '📡 STREAM';
 
     document.getElementById('btnMicMute').className = 'ibtn' + (st.mic_muted ? ' on-mute' : '');
-    document.getElementById('btnMicMute').textContent = st.mic_muted ? '🔇 MIC AUS' : '🎙️ MIC AN';
+    document.getElementById('btnMicMute').textContent = st.mic_muted ? '🔇 MIC' : '🎙️ MIC';
     document.getElementById('btnClipMute').className = 'ibtn' + (st.clip_muted ? ' on-mute' : '');
-    document.getElementById('btnClipMute').textContent = st.clip_muted ? '🔇 VID AUS' : '🎬 VID AN';
+    document.getElementById('btnClipMute').textContent = st.clip_muted ? '🔇 VID' : '🎬 VID';
 
     const prvInp = st.inputs[st.prv_idx];
     const prvTrans = document.getElementById('prvTransport');
@@ -641,7 +664,7 @@ async function pollState() {
     renderInputsGrid(st);
   } catch (e) {
     document.getElementById('connDot').className = 'dot off';
-    document.getElementById('telemetry').textContent = 'Verbindung getrennt';
+    document.getElementById('telemetry').textContent = (currentLang === 'en') ? 'Disconnected' : 'Verbindung getrennt';
   }
 }
 
@@ -664,8 +687,8 @@ refreshMonitorFrames();
 
 class WebRemoteController:
     """
-    Leichtgewichtiger, Token-geschützter HTTP-Web-Controller für iPad, Tablet & Browser.
-    Synchronisiert Befehle threadsicher über eine Queue mit dem 30-FPS-Hauptloop von LiteMix HD.
+    Lightweight, token-protected HTTP web remote controller for iPad, tablet, and browsers.
+    Synchronizes commands thread-safely via a queue with the 30 FPS main loop of LiteMix HD.
     """
 
     def __init__(self, main_win):
@@ -738,7 +761,7 @@ class WebRemoteController:
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, format, *args):
-                pass  # Kein Terminal-Spam bei Polling
+                pass  # Suppress console spam during polling
 
             def _check_auth(self, parsed) -> bool:
                 qs = urllib.parse.parse_qs(parsed.query)
@@ -764,9 +787,9 @@ class WebRemoteController:
                     self.end_headers()
                     self.wfile.write(
                         b"<html><body style='background:#12151e;color:#e4e8f0;font-family:sans-serif;"
-                        b"text-align:center;padding:40px;'><h2>&#128274; LiteMix HD Web-Fernsteuerung</h2>"
-                        b"<p>Zugriff verweigert: G&uuml;ltiges Zugangs-Token erforderlich.</p>"
-                        b"<p>Bitte scannen Sie den QR-Code in LiteMix HD (Button &#128241; unten in der Leiste).</p>"
+                        b"text-align:center;padding:40px;'><h2>&#128274; LiteMix HD Web Remote</h2>"
+                        b"<p>Access denied: Valid security token required / G&uuml;ltiges Zugangs-Token erforderlich.</p>"
+                        b"<p>Please scan the QR code in LiteMix HD (Button &#128241; in the bottom bar).</p>"
                         b"</body></html>"
                     )
                     return
@@ -870,29 +893,28 @@ class WebRemoteController:
 
     def tick_from_main_thread(self, prv_frame: QImage, pgm_canvas: QImage, tick_count: int):
         """
-        Wird vom 30-FPS-Render-Loop in LiteMixMainWindow aufgerufen:
-        1. Führt alle vom iPad/Browser gesendeten Befehle sicher im Qt-Hauptthread aus.
-        2. Aktualisiert bei aktivem Web-Client den JSON-Status & die JPEG-Vorschaubilder.
+        Called by the 30 FPS render loop in LiteMixMainWindow:
+        1. Executes all pending commands received from iPad/browser clients on the Qt main thread.
+        2. Updates the JSON state snapshot and JPEG monitor thumbnails when a client is connected.
         """
-        win = self.main_win
         while self._cmd_queue:
             try:
                 cmd = self._cmd_queue.popleft()
                 self._execute_command_on_main_thread(cmd)
             except Exception as e:
-                print(f"[WebRemote] Befehlsfehler: {e}")
+                print(f"[WebRemote] Command error: {e}")
 
         if not self._httpd:
             return
 
-        # Status-JSON alle 3 Ticks (~10 Hz) aktualisieren
+        # Update JSON state snapshot every 3 ticks (~10 Hz)
         if tick_count % 3 == 0:
             st = self._build_state_dict()
             raw_json = json.dumps(st, ensure_ascii=False).encode("utf-8")
             with self._lock:
                 self._state_json_bytes = raw_json
 
-        # JPEG-Vorschaubilder nur kodieren, wenn ein iPad/Browser in den letzten 3 s verbunden war (~6 FPS)
+        # Encode JPEG thumbnails only when a web client has polled within the last 3 seconds (~6 FPS)
         if (time.time() - self._last_client_poll) < 3.0 and (tick_count % 5 == 0):
             prv_jpg = self._qimage_to_jpeg_bytes(prv_frame)
             pgm_jpg = self._qimage_to_jpeg_bytes(pgm_canvas)
@@ -910,7 +932,7 @@ class WebRemoteController:
             has_speed = cls_name in ("ReplaySourceInput", "HighlightsInput")
             pos_s, dur_s = inp.get_position_duration() if playable else (0.0, 0.0)
             is_lt = (cls_name == "LowerThirdInput")
-            is_audio_only = hasattr(inp, "icon_char")
+            is_audio_only = hasattr(inp, "icon_text")
             item = {
                 "index": idx,
                 "name": inp.name,
@@ -942,6 +964,7 @@ class WebRemoteController:
 
         return {
             "version": win.APP_VERSION,
+            "lang": get_lang(),
             "prv_idx": win.prv_idx,
             "pgm_idx": win.pgm_idx,
             "ovl1_idx": win.ovl1_idx,
@@ -969,6 +992,8 @@ class WebRemoteController:
             win.do_fade()
         elif action == "ftb":
             win.toggle_ftb()
+        elif action == "toggle_lang":
+            win.toggle_ui_language()
         elif action == "tbar":
             val = max(0, min(100, int(cmd.get("value", 0))))
             win.tbar_slider.setValue(val)
@@ -1062,27 +1087,36 @@ class WebRemoteController:
 
 class WebRemoteDialog(QDialog):
     """
-    Dialogfenster für die iPad-/Browser-Fernsteuerung mit QR-Code, Direkt-Link und Sicherheits-Token.
+    Dialog window for the iPad/browser Web Remote displaying QR code, direct URL, and security token.
     """
 
     def __init__(self, parent, controller: WebRemoteController):
         super().__init__(parent)
         self.controller = controller
-        self.setWindowTitle("📱 LiteMix HD – Web-Fernsteuerung (iPad / Tablet / Browser)")
+        self.setWindowTitle(
+            tr(
+                "📱 LiteMix HD – Web-Fernsteuerung (iPad / Tablet / Browser)",
+                "📱 LiteMix HD – Web Remote Control (iPad / Tablet / Browser)",
+            )
+        )
         self.setMinimumWidth(520)
 
         root = QVBoxLayout(self)
         root.setSpacing(10)
 
         info = QLabel(
-            "Steuern Sie <b>LiteMix HD</b> bequem über das WLAN von einem <b>iPad, Smartphone oder Zweitrechner</b> aus.<br>"
-            "Scannen Sie einfach den <b>QR-Code</b> mit der iPad-Kamera – das Zugangs-Token ist im Link bereits enthalten."
+            tr(
+                "Steuern Sie <b>LiteMix HD</b> bequem über das WLAN von einem <b>iPad, Smartphone oder Zweitrechner</b> aus.<br>"
+                "Scannen Sie einfach den <b>QR-Code</b> mit der iPad-Kamera – das Zugangs-Token ist im Link bereits enthalten.",
+                "Control <b>LiteMix HD</b> wirelessly over Wi-Fi/LAN from an <b>iPad, smartphone, or second computer</b>.<br>"
+                "Simply scan the <b>QR code</b> with your iPad camera — the security token is already embedded in the link.",
+            )
         )
         info.setWordWrap(True)
         info.setStyleSheet("color: #c8d2e4; font-size: 11px;")
         root.addWidget(info)
 
-        # Mittelbereich: QR-Code links + Verbindungsdetails rechts
+        # Middle section: QR code on the left + connection details on the right
         mid_row = QHBoxLayout()
         mid_row.setSpacing(14)
 
@@ -1109,31 +1143,36 @@ class WebRemoteDialog(QDialog):
         self.edit_url = QLineEdit()
         self.edit_url.setReadOnly(True)
         self.edit_url.setStyleSheet("font-family: monospace; font-size: 11px; color: #20d660; background: #12161f; padding: 5px;")
-        form.addRow("Direkt-Link:", self.edit_url)
+        form.addRow(tr("Direkt-Link:", "Direct URL:"), self.edit_url)
 
         self.edit_token = QLineEdit()
         self.edit_token.setReadOnly(True)
         self.edit_token.setStyleSheet("font-family: monospace; font-size: 12px; font-weight: bold; color: #ffca40; background: #12161f; padding: 5px;")
-        form.addRow("Sicherheits-Token:", self.edit_token)
+        form.addRow(tr("Sicherheits-Token:", "Security Token:"), self.edit_token)
 
         port_row = QHBoxLayout()
         self.spin_port = QSpinBox()
         self.spin_port.setRange(1024, 65535)
         self.spin_port.setValue(self.controller.port)
-        btn_apply_port = QPushButton("Port übernehmen")
+        btn_apply_port = QPushButton(tr("Port übernehmen", "Apply Port"))
         btn_apply_port.clicked.connect(self._on_apply_port)
         port_row.addWidget(self.spin_port)
         port_row.addWidget(btn_apply_port)
         port_row.addStretch()
-        form.addRow("TCP-Port:", port_row)
+        form.addRow("TCP Port:", port_row)
 
         details_vbox.addLayout(form)
 
         act_row1 = QHBoxLayout()
-        btn_copy = QPushButton("📋 Link kopieren")
+        btn_copy = QPushButton(tr("📋 Link kopieren", "📋 Copy Link"))
         btn_copy.clicked.connect(self._on_copy_link)
-        btn_new_token = QPushButton("🔑 Neues Token erzeugen")
-        btn_new_token.setToolTip("Erzeugt ein neues Sicherheits-Token und macht alte QR-Codes ungültig")
+        btn_new_token = QPushButton(tr("🔑 Neues Token erzeugen", "🔑 Generate New Token"))
+        btn_new_token.setToolTip(
+            tr(
+                "Erzeugt ein neues Sicherheits-Token und macht alte QR-Codes ungültig",
+                "Generates a new security token and invalidates previous QR codes",
+            )
+        )
         btn_new_token.clicked.connect(self._on_new_token)
         act_row1.addWidget(btn_copy)
         act_row1.addWidget(btn_new_token)
@@ -1149,7 +1188,7 @@ class WebRemoteDialog(QDialog):
 
         foot = QHBoxLayout()
         foot.addStretch()
-        btn_close = QPushButton("Schließen")
+        btn_close = QPushButton(tr("Schließen", "Close"))
         btn_close.setObjectName("AddInputBtn")
         btn_close.clicked.connect(self.accept)
         foot.addWidget(btn_close)
@@ -1164,13 +1203,27 @@ class WebRemoteDialog(QDialog):
         self.edit_token.setText(self.controller.token)
 
         if running:
-            self.lbl_status.setText("🟢 Web-Server aktiv – Bereit für iPad / Browser")
+            self.lbl_status.setText(
+                tr(
+                    "🟢 Web-Server aktiv – Bereit für iPad / Browser",
+                    "🟢 Web Server Active – Ready for iPad / Browser",
+                )
+            )
             self.lbl_status.setStyleSheet("color: #20d660; font-size: 12px; font-weight: bold;")
-            self.btn_toggle_srv.setText("⏹ Web-Fernsteuerung deaktivieren")
+            self.btn_toggle_srv.setText(
+                tr("⏹ Web-Fernsteuerung deaktivieren", "⏹ Disable Web Remote")
+            )
         else:
-            self.lbl_status.setText("⚪ Web-Fernsteuerung ist derzeit pausiert")
+            self.lbl_status.setText(
+                tr(
+                    "⚪ Web-Fernsteuerung ist derzeit pausiert",
+                    "⚪ Web Remote is currently paused",
+                )
+            )
             self.lbl_status.setStyleSheet("color: #f08030; font-size: 12px; font-weight: bold;")
-            self.btn_toggle_srv.setText("▶ Web-Fernsteuerung jetzt starten")
+            self.btn_toggle_srv.setText(
+                tr("▶ Web-Fernsteuerung jetzt starten", "▶ Start Web Remote Now")
+            )
 
         qr_img = generate_qr_qimage(url, box_size=210, border_modules=3)
         self.lbl_qr.setPixmap(QPixmap.fromImage(qr_img))
@@ -1179,7 +1232,9 @@ class WebRemoteDialog(QDialog):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(self.controller.get_access_url())
-        self.lbl_status.setText("✅ Link in die Zwischenablage kopiert!")
+        self.lbl_status.setText(
+            tr("✅ Link in die Zwischenablage kopiert!", "✅ Link copied to clipboard!")
+        )
 
     def _on_new_token(self):
         self.controller.regenerate_token()
@@ -1190,7 +1245,14 @@ class WebRemoteDialog(QDialog):
         self.controller.port = new_port
         ok, msg = self.controller.start_server()
         if not ok:
-            QMessageBox.warning(self, "Port-Fehler", f"Server konnte auf Port {new_port} nicht gestartet werden:\n{msg}")
+            QMessageBox.warning(
+                self,
+                tr("Port-Fehler", "Port Error"),
+                tr(
+                    f"Server konnte auf Port {new_port} nicht gestartet werden:\n{msg}",
+                    f"Failed to start server on port {new_port}:\n{msg}",
+                ),
+            )
         self._refresh_ui()
 
     def _on_toggle_server(self):
@@ -1201,5 +1263,12 @@ class WebRemoteDialog(QDialog):
         else:
             ok, msg = self.controller.start_server()
             if not ok:
-                QMessageBox.warning(self, "Server-Fehler", f"Web-Fernsteuerung konnte nicht gestartet werden:\n{msg}")
+                QMessageBox.warning(
+                    self,
+                    tr("Server-Fehler", "Server Error"),
+                    tr(
+                        f"Web-Fernsteuerung konnte nicht gestartet werden:\n{msg}",
+                        f"Failed to start Web Remote server:\n{msg}",
+                    ),
+                )
         self._refresh_ui()

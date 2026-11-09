@@ -14,6 +14,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton
 )
+from i18n import tr
 
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -25,16 +26,16 @@ Gst.init(None)
 
 
 class BaseInput:
-    """Basisklasse für alle vMix-Inputs."""
+    """Base class for all LiteMix video and audio input sources."""
 
     def __init__(self, name: str, width: int = 1280, height: int = 720):
         self.name = name
         self.width = width
         self.height = height
         self.has_audio = False
-        self.volume = 1.0  # 0.0 bis 1.0
+        self.volume = 1.0  # 0.0 to 1.5
         self.muted = False
-        self.vu_level = 0.0  # 0.0 bis 1.0 für VU-Meter
+        self.vu_level = 0.0  # 0.0 to 1.0 for VU meters
         self.active = True
         self._lock = threading.Lock()
         self._frame = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
@@ -51,7 +52,7 @@ class BaseInput:
         self.muted = muted
 
     def update(self):
-        """Wird pro Render-Tick aufgerufen, falls prozedural."""
+        """Called once per render tick for procedural or GStreamer bus updates."""
         pass
 
     def stop(self):
@@ -59,7 +60,7 @@ class BaseInput:
 
 
 class TestPatternInput(BaseInput):
-    """Animiertes Broadcast-Testbild (SMPTE-Style + Studio-Uhr + Live-Radar)."""
+    """Animated broadcast test pattern (SMPTE color bars + studio clock + sync indicator)."""
 
     def __init__(self, name: str = "Studio Testbild", width: int = 1280, height: int = 720, pattern_style: int = 0):
         super().__init__(name, width, height)
@@ -151,14 +152,14 @@ class TestPatternInput(BaseInput):
 
 class LowerThirdInput(BaseInput):
     """
-    Transparente Bauchbinde (Lower Third) für Overlay-Kanäle OVL 1 / OVL 2
-    mit 3 auswählbaren Broadcast-Design-Templates.
+    Transparent lower-third graphic overlay for overlay channels OV1 / OV2
+    with 3 selectable broadcast design templates.
     """
 
     TEMPLATES = [
-        (0, "1: Studio Cyan (Klassisch)"),
-        (1, "2: TV News / Live-Banner (Rot/Weiß)"),
-        (2, "3: Modern Minimal / Talk-Pill (Smaragd)"),
+        (0, "1: Studio Cyan (Classic)"),
+        (1, "2: TV News / Live Banner (Red/White)"),
+        (2, "3: Modern Minimal / Talk Pill (Emerald)"),
     ]
 
     def __init__(
@@ -195,7 +196,7 @@ class LowerThirdInput(BaseInput):
         bh = 104
 
         if self.template_id == 0:
-            # Template 0: Studio Cyan (Klassischer dunkler Broadcast-Verlauf mit Cyan-Akzent)
+            # Template 0: Studio Cyan (Classic dark broadcast gradient with cyan accent bar)
             grad = QLinearGradient(bx, by, bx + bw, by)
             grad.setColorAt(0.0, QColor(14, 20, 32, 238))
             grad.setColorAt(0.85, QColor(20, 30, 48, 220))
@@ -204,11 +205,11 @@ class LowerThirdInput(BaseInput):
             p.setPen(Qt.PenStyle.NoPen)
             p.drawRoundedRect(QRectF(bx, by, bw, bh), 8, 8)
 
-            # Linker Cyan-Balken
+            # Left cyan accent bar
             p.setBrush(QColor(0, 195, 255))
             p.drawRoundedRect(QRectF(bx, by, 10, bh), 4, 4)
 
-            # Texte
+            # Texts
             p.setPen(QColor(255, 255, 255))
             p.setFont(QFont("Sans Serif", 22, QFont.Weight.Bold))
             p.drawText(
@@ -226,12 +227,12 @@ class LowerThirdInput(BaseInput):
             )
 
         elif self.template_id == 1:
-            # Template 1: TV News / Live-Banner (Zweistufiger Nachrichten-Look Rot/Weiß/Anthrazit)
+            # Template 1: TV News / Live Banner (Two-tier broadcast look in Red/White/Charcoal)
             top_h = 56
             bot_h = 40
             slant = 18
 
-            # Oberer weißer/hellgrauer Hauptbalken mit schräger rechter Kante
+            # Upper white/light-gray bar with slanted right edge
             top_poly = QPolygonF([
                 QPointF(bx, by),
                 QPointF(bx + bw, by),
@@ -245,7 +246,7 @@ class LowerThirdInput(BaseInput):
             p.setPen(Qt.PenStyle.NoPen)
             p.drawPolygon(top_poly)
 
-            # Rotes LIVE-Tag links oben mit schräger Kante
+            # Red LIVE badge on top-left with slanted edge
             tag_w = 96
             tag_poly = QPolygonF([
                 QPointF(bx, by),
@@ -267,7 +268,7 @@ class LowerThirdInput(BaseInput):
                 "● LIVE",
             )
 
-            # Hauptzeile (Dunkel auf Weiß)
+            # Primary headline (dark text on white bar)
             p.setPen(QColor(16, 20, 28))
             p.setFont(QFont("Sans Serif", 21, QFont.Weight.Bold))
             p.drawText(
@@ -276,7 +277,7 @@ class LowerThirdInput(BaseInput):
                 self.title,
             )
 
-            # Unterer Anthrazit-Balken mit Gold-Trennlinie
+            # Lower charcoal bar with gold divider line
             bot_y = by + top_h
             bot_w = bw - 35
             bot_poly = QPolygonF([
@@ -288,11 +289,11 @@ class LowerThirdInput(BaseInput):
             p.setBrush(QColor(18, 22, 32, 242))
             p.drawPolygon(bot_poly)
 
-            # Gold-Akzentlinie zwischen Ober- und Unterbalken
+            # Gold accent line between upper and lower bars
             p.setBrush(QColor(255, 185, 15))
             p.drawRect(QRectF(bx, bot_y - 2, bot_w, 3))
 
-            # Unterzeile (Weiß/Gold auf Anthrazit)
+            # Subtitle (gold on charcoal)
             p.setPen(QColor(255, 210, 90))
             p.setFont(QFont("Sans Serif", 13, QFont.Weight.Bold))
             p.drawText(
@@ -302,7 +303,7 @@ class LowerThirdInput(BaseInput):
             )
 
         else:
-            # Template 2: Modern Minimal / Talk-Pill (Abgerundete Kapsel mit Smaragd-Rahmen & Monogramm-Kreis)
+            # Template 2: Modern Minimal / Talk Pill (Rounded capsule with emerald border & monogram badge)
             pill_h = 94
             pill_y = by + 5
             radius = pill_h * 0.5
@@ -315,7 +316,7 @@ class LowerThirdInput(BaseInput):
             p.setPen(QPen(QColor(0, 230, 150, 210), 2.5))
             p.drawRoundedRect(QRectF(bx, pill_y, bw, pill_h), radius, radius)
 
-            #Runder Smaragd/Blau-Badge links
+            # Circular emerald/blue badge on the left
             circle_d = pill_h - 16
             cx = bx + 8
             cy = pill_y + 8
@@ -326,7 +327,7 @@ class LowerThirdInput(BaseInput):
             p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(QRectF(cx, cy, circle_d, circle_d))
 
-            # Initialen aus dem Titel extrahieren
+            # Extract initials from the title
             words = [w for w in self.title.strip().split() if w and w[0].isalnum()]
             if len(words) >= 2:
                 initials = (words[0][0] + words[1][0]).upper()
@@ -339,7 +340,7 @@ class LowerThirdInput(BaseInput):
             p.setFont(QFont("Sans Serif", 20, QFont.Weight.Bold))
             p.drawText(QRectF(cx, cy, circle_d, circle_d), Qt.AlignmentFlag.AlignCenter, initials)
 
-            # Texte rechts neben dem Kreis
+            # Texts to the right of the monogram circle
             tx = cx + circle_d + 16
             tw = bw - (tx - bx) - 24
             p.setPen(QColor(255, 255, 255))
@@ -364,7 +365,7 @@ class LowerThirdInput(BaseInput):
 
 
 class ImageInput(BaseInput):
-    """Statisches Bild (PNG/JPG/SVG) inkl. Alpha-Transparenz für Overlays oder Vollbild."""
+    """Static image source (PNG/JPG/SVG) including alpha transparency for overlays or fullscreen."""
 
     def __init__(self, filepath: str, width: int = 1280, height: int = 720):
         name = f"Bild: {os.path.basename(filepath)}"
@@ -389,7 +390,7 @@ class ImageInput(BaseInput):
 
 
 class GStreamerBaseInput(BaseInput):
-    """Gemeinsame Basis für alle GStreamer-basierten Video/Audio-Quellen (inkl. Zeitlupen-Steuerung)."""
+    """Common base class for all GStreamer-powered video/audio sources (including slow-motion control)."""
 
     def __init__(self, name: str, width: int = 1280, height: int = 720):
         super().__init__(name, width, height)
@@ -400,9 +401,9 @@ class GStreamerBaseInput(BaseInput):
         self.return_to_preview_on_eos = False
         self.eos_return_pending = False
         self.paused = False
-        self.playback_rate = 1.0  # 1.0 = Echtzeit, 0.5 = 50% Zeitlupe, 0.25 = 25% Super-Zeitlupe
+        self.playback_rate = 1.0  # 1.0 = real-time, 0.5 = 50% slow-mo, 0.25 = 25% super slow-mo
         self._pending_rate_apply = False
-        self.afv_gain = 1.0  # Audio-Follow-Video Faktor (1.0 = Live/Aktiv, 0.0 = Stumm in Preview/Grid)
+        self.afv_gain = 1.0  # Audio-Follow-Video factor (1.0 = live/active, 0.0 = muted in Preview/grid)
 
     def _apply_effective_volume(self):
         eff = 0.0 if (self.muted or self.paused) else (self.volume * self.afv_gain)
@@ -434,7 +435,7 @@ class GStreamerBaseInput(BaseInput):
         )
 
     def set_playback_rate(self, rate: float):
-        """Ändert die Abspielgeschwindigkeit (z.B. 0.25, 0.5, 0.75, 1.0) unter Beibehaltung der aktuellen Position."""
+        """Change playback speed (e.g., 0.25, 0.5, 0.75, 1.0) while preserving current position."""
         self.playback_rate = max(0.1, min(2.0, float(rate)))
         if not self.pipeline:
             return
@@ -518,7 +519,7 @@ class GStreamerBaseInput(BaseInput):
                 rms_list = struct.get_value("rms")
                 if rms_list and len(rms_list) > 0:
                     db = rms_list[0]
-                    # Noise-Gate unter -38 dB (filtert Grundrauschen aus)
+                    # Noise gate below -38 dB (filters out background noise floor)
                     if db < -38.0 or self.muted or self.paused or self.afv_gain <= 0.001:
                         self.vu_level = 0.0
                     else:
@@ -564,7 +565,7 @@ class GStreamerBaseInput(BaseInput):
             self.pause()
 
     def stop_playback(self):
-        """Stoppt die Wiedergabe und spult an den Anfang (00:00) zurück."""
+        """Stop playback and rewind to the beginning (00:00)."""
         if not self.pipeline:
             return
         self.paused = True
@@ -581,14 +582,14 @@ class GStreamerBaseInput(BaseInput):
             self._seek_with_rate(0, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT)
 
     def seek_seconds(self, target_sec: float):
-        """Spult framegenau zur angegebenen Position in Sekunden."""
+        """Seek accurately to the specified position in seconds."""
         if not self.pipeline:
             return
         target_ns = max(0, int(target_sec * Gst.SECOND))
         self._seek_with_rate(target_ns, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE)
 
     def get_position_duration(self) -> tuple[float, float]:
-        """Liefert (aktuelle Position in s, Gesamtdauer in s)."""
+        """Return (current_position_seconds, total_duration_seconds)."""
         if not self.pipeline:
             return 0.0, 0.0
         ok_p, pos = self.pipeline.query_position(Gst.Format.TIME)
@@ -607,21 +608,21 @@ class GStreamerBaseInput(BaseInput):
 
 
 class VideoFileInput(GStreamerBaseInput):
-    """Spielt MP4/MKV/WebM-Videos lippensynchron via playbin mit Loop, Audio-Follow-Video und Live-VU-Meter ab."""
+    """Plays MP4/MKV/WebM video files with lip-sync via playbin, Loop, Audio-Follow-Video, and live VU meter."""
 
     def __init__(self, filepath: str, width: int = 1280, height: int = 720):
         name = f"Video: {os.path.basename(filepath)}"
         super().__init__(name, width, height)
         self.filepath = os.path.abspath(filepath)
         self.has_audio = True
-        self.afv_gain = 0.0  # Erst hörbar/Pegel, wenn in Program (Live) oder Overlay geschaltet!
+        self.afv_gain = 0.0  # Audible only when active in Program (Live), Preview (playing), or Overlay
         uri = Gst.filename_to_uri(self.filepath)
 
         try:
             self.paused = True
             self.pipeline = Gst.ElementFactory.make("playbin", "player")
             self.pipeline.set_property("uri", uri)
-            # flags=0x00000003: Nur 1 Video-Track + 1 Audio-Track dekodieren (ignoriert Untertitel & 2. Tonspur!)
+            # flags=0x00000003: Decode only 1 video track + 1 audio track (ignores subtitles & secondary tracks)
             self.pipeline.set_property("flags", 0x00000003)
 
             vbin = Gst.parse_bin_from_description(
@@ -644,11 +645,11 @@ class VideoFileInput(GStreamerBaseInput):
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PAUSED)
         except Exception as e:
-            print(f"[VideoFileInput] Fehler beim Starten der Pipeline: {e}")
+            print(f"[VideoFileInput] Failed to start pipeline: {e}")
 
 
 class V4L2CameraInput(GStreamerBaseInput):
-    """Erfasst Webcams oder USB-Capture-Cards über Video4Linux2 (/dev/videoX) inkl. Spiegel-Option."""
+    """Captures webcams or USB capture cards via Video4Linux2 (/dev/videoX) with horizontal mirror option."""
 
     def __init__(self, device: str = "/dev/video0", width: int = 1280, height: int = 720, mirror: bool = True):
         name = f"Kamera ({device})"
@@ -682,15 +683,17 @@ class V4L2CameraInput(GStreamerBaseInput):
 
 class WaylandPortalInput(GStreamerBaseInput):
     """
-    Erfasst ein beliebiges Anwendungs-/Browserfenster oder den Bildschirm unter Wayland
-    über das offizielle XDG Desktop Portal (ScreenCast) + PipeWire.
+    Captures any application/browser window or monitor under Wayland
+    via the official XDG Desktop Portal (ScreenCast) + PipeWire.
     """
 
     def __init__(self, name: str = "Fenster / Browser (Wayland)", width: int = 1280, height: int = 720):
         super().__init__(name, width, height)
         self.loop_enabled = False
         self._portal_session = None
-        self._render_waiting_message("Fenster-Auswahl im Systemdialog geöffnet...")
+        self._render_waiting_message(
+            tr("Fenster-Auswahl im Systemdialog geöffnet...", "Window selection opened in system dialog...")
+        )
         QTimer.singleShot(100, self._request_screencast_portal)
 
     def _render_waiting_message(self, msg: str):
@@ -737,7 +740,7 @@ class WaylandPortalInput(GStreamerBaseInput):
                     dbus_interface='org.freedesktop.portal.Request',
                     path=req_path2
                 )
-                # types=3 erlaubt sowohl Monitor (1) als auch einzelnes Fenster/Browser (2)
+                # types=3 allows both monitor (1) and individual window/browser (2)
                 screencast.SelectSources(
                     self._portal_session,
                     dbus.Dictionary({
@@ -750,7 +753,7 @@ class WaylandPortalInput(GStreamerBaseInput):
 
             def on_select_sources(response, results):
                 if response != 0:
-                    self._render_waiting_message("Keine Quelle ausgewählt.")
+                    self._render_waiting_message(tr("Keine Quelle ausgewählt.", "No source selected."))
                     return
                 tok3, req_path3 = new_request_path()
                 bus.add_signal_receiver(
@@ -767,11 +770,15 @@ class WaylandPortalInput(GStreamerBaseInput):
 
             def on_start(response, results):
                 if response != 0 or 'streams' not in results:
-                    self._render_waiting_message("Fenster-Aufnahme vom Nutzer abgebrochen.")
+                    self._render_waiting_message(
+                        tr("Fenster-Aufnahme vom Nutzer abgebrochen.", "Window capture cancelled by user.")
+                    )
                     return
                 streams = results['streams']
                 if not streams:
-                    self._render_waiting_message("Kein PipeWire-Stream erhalten.")
+                    self._render_waiting_message(
+                        tr("Kein PipeWire-Stream erhalten.", "No PipeWire stream received.")
+                    )
                     return
                 node_id = int(streams[0][0])
                 fd_obj = screencast.OpenPipeWireRemote(
@@ -794,7 +801,7 @@ class WaylandPortalInput(GStreamerBaseInput):
                 }, signature='sv')
             )
         except Exception as e:
-            self._render_waiting_message(f"Portal-Fehler: {e}")
+            self._render_waiting_message(f"Portal Error: {e}")
 
     def _start_pipewire_pipeline(self, fd: int, node_id: int):
         pipe_str = (
@@ -808,15 +815,15 @@ class WaylandPortalInput(GStreamerBaseInput):
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PLAYING)
         except Exception as e:
-            self._render_waiting_message(f"PipeWire-Fehler: {e}")
+            self._render_waiting_message(f"PipeWire Error: {e}")
 
 
 class WebBrowserWindow(QWidget):
-    """Eigenes interaktives Browserfenster, dessen Inhalt als vMix-Input abgegriffen wird."""
+    """Dedicated interactive browser window whose rendered surface is captured as a LiteMix input."""
 
     def __init__(self, url: str, width: int = 1280, height: int = 720):
         super().__init__()
-        self.setWindowTitle(f"LiteMix Browser-Quelle – {url}")
+        self.setWindowTitle(f"LiteMix Browser – {url}")
         self.resize(1024, 640)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -824,7 +831,7 @@ class WebBrowserWindow(QWidget):
 
         nav = QHBoxLayout()
         self.url_edit = QLineEdit(url)
-        btn_go = QPushButton("Laden")
+        btn_go = QPushButton(tr("Laden", "Go"))
         nav.addWidget(self.url_edit)
         nav.addWidget(btn_go)
         layout.addLayout(nav)
@@ -844,7 +851,7 @@ class WebBrowserWindow(QWidget):
 
 
 class WebBrowserInput(BaseInput):
-    """Integrierter Web-Browser Input auf Basis von QtWebEngine inkl. Audio-Steuerung."""
+    """Integrated web browser input powered by QtWebEngine with audio mute control."""
 
     def __init__(self, url: str = "https://de.wikipedia.org", width: int = 1280, height: int = 720):
         super().__init__(f"Browser: {url}", width, height)
@@ -888,8 +895,8 @@ class WebBrowserInput(BaseInput):
 
 class AudioInputBase(GStreamerBaseInput):
     """
-    Basisklasse für reine Audio-Quellen (Mikrofone, System-Audio, Musik/Jingles).
-    Zeichnet eine Live-Audio-Visualisierung mit Pegelanzeige auf die Vorschau-Kachel.
+    Base class for audio-only sources (microphones, system audio, music/jingles).
+    Renders a live audio level visualization onto the preview frame.
     """
 
     def __init__(self, name: str, icon_text: str = "🎙️", width: int = 1280, height: int = 720):
@@ -934,13 +941,16 @@ class AudioInputBase(GStreamerBaseInput):
 
             # Status label
             if self.muted:
-                status = "🔇 STUMMGESCHALTET (MUTE)"
+                status = tr("🔇 STUMMGESCHALTET (MUTE)", "🔇 MUTED")
                 scol = QColor(240, 70, 70)
             elif self.paused:
-                status = "⏸ PAUSIERT"
+                status = tr("⏸ PAUSIERT", "⏸ PAUSED")
                 scol = QColor(240, 190, 50)
             else:
-                status = f"● AKTIV  |  Lautstärke: {int(self.volume * 100)}%"
+                status = tr(
+                    f"● AKTIV  |  Lautstärke: {int(self.volume * 100)}%",
+                    f"● ACTIVE  |  Volume: {int(self.volume * 100)}%",
+                )
                 scol = QColor(0, 220, 140)
 
             p.setPen(scol)
@@ -968,7 +978,7 @@ class AudioInputBase(GStreamerBaseInput):
 
 
 class MicDeviceInput(AudioInputBase):
-    """Binden ein bestimmtes Mikrofon / Line-In / USB-Audio-Interface als eigene Quelle ein."""
+    """Captures a specific microphone / line-in / USB audio interface as an individual source."""
 
     def __init__(self, device_id: str = "default", label: str = "Mikrofon", width: int = 1280, height: int = 720):
         clean_label = label.replace("🎙️", "").strip()
@@ -986,11 +996,11 @@ class MicDeviceInput(AudioInputBase):
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PLAYING)
         except Exception as e:
-            print(f"[MicDeviceInput] Fehler: {e}")
+            print(f"[MicDeviceInput] Error: {e}")
 
 
 class SystemAudioInput(AudioInputBase):
-    """Greift den Desktop-/System-Ton (z.B. Browser, YouTube, Zoom) über PipeWire/Pulse-Monitor ab."""
+    """Captures desktop/system audio (e.g., browser, YouTube, Zoom) via a PipeWire/PulseAudio monitor source."""
 
     def __init__(self, monitor_id: str = "default", label: str = "System-Audio", width: int = 1280, height: int = 720):
         clean_label = label.replace("🔊", "").strip()
@@ -1008,11 +1018,11 @@ class SystemAudioInput(AudioInputBase):
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PLAYING)
         except Exception as e:
-            print(f"[SystemAudioInput] Fehler: {e}")
+            print(f"[SystemAudioInput] Error: {e}")
 
 
 class AudioFileInput(AudioInputBase):
-    """Spielt Musik, Jingles oder Soundeffekte (MP3, WAV, FLAC, OGG) mit Play/Pause/Loop ab."""
+    """Plays music, jingles, or sound effects (MP3, WAV, FLAC, OGG) with Play/Pause/Loop/Auto-Return controls."""
 
     def __init__(self, filepath: str, width: int = 1280, height: int = 720):
         name = f"Audio: {os.path.basename(filepath)}"
@@ -1032,25 +1042,25 @@ class AudioFileInput(AudioInputBase):
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PAUSED)
         except Exception as e:
-            print(f"[AudioFileInput] Fehler: {e}")
+            print(f"[AudioFileInput] Error: {e}")
 
 
 class ReplaySourceInput(GStreamerBaseInput):
     """
-    Spezial-Quelle '⏪ Letztes Replay':
-    Bietet nach jedem manuellen Replay-Stopp automatisch das zuletzt aufgezeichnete Replay
-    an (standardmäßig in 0.5x Zeitlupe, umschaltbar zwischen 0.25x / 0.5x / 0.75x / 1.0x).
+    Special source '⏪ Letztes Replay' / '⏪ Last Replay':
+    Automatically provides the most recently recorded instant replay clip
+    (defaults to 0.5x slow motion, switchable between 0.25x / 0.5x / 0.75x / 1.0x).
     """
 
     SPEED_OPTIONS = [
-        (0.25, "0.25× (Super-Zeitlupe)"),
-        (0.50, "0.50× (Halbes Tempo)"),
-        (0.75, "0.75× (Leichte Zeitlupe)"),
-        (1.00, "1.00× (Originaltempo)"),
+        (0.25, "0.25× (Super Slow-Mo)"),
+        (0.50, "0.50× (Half Speed)"),
+        (0.75, "0.75× (Slow Motion)"),
+        (1.00, "1.00× (Normal Speed)"),
     ]
 
     def __init__(self, filepath: str = "", width: int = 1280, height: int = 720, playback_rate: float = 0.5):
-        super().__init__("⏪ Letztes Replay", width, height)
+        super().__init__(tr("⏪ Letztes Replay", "⏪ Last Replay"), width, height)
         self.filepath = os.path.abspath(filepath) if filepath else ""
         self.has_audio = False
         self.playback_rate = max(0.25, min(1.0, float(playback_rate)))
@@ -1077,14 +1087,21 @@ class ReplaySourceInput(GStreamerBaseInput):
 
         p.setPen(QColor(255, 255, 255))
         p.setFont(QFont("Sans Serif", 22, QFont.Weight.Bold))
-        p.drawText(QRectF(cx, cy + 26, card_w, 42), Qt.AlignmentFlag.AlignCenter, "⏪ Letztes Replay")
+        p.drawText(
+            QRectF(cx, cy + 26, card_w, 42),
+            Qt.AlignmentFlag.AlignCenter,
+            tr("⏪ Letztes Replay", "⏪ Last Replay"),
+        )
 
         p.setPen(QColor(150, 165, 190))
         p.setFont(QFont("Sans Serif", 13))
         p.drawText(
             QRectF(cx + 20, cy + 82, card_w - 40, 48),
             Qt.AlignmentFlag.AlignCenter,
-            "Klicke in der Mittelspalte auf [⏺ REPLAY], um eine Szene aufzuzeichnen.",
+            tr(
+                "Klicke in der Mittelspalte auf [⏺ REPLAY], um eine Szene aufzuzeichnen.",
+                "Click [⏺ REPLAY] in the center column to record a live scene.",
+            ),
         )
         p.end()
         with self._lock:
@@ -1144,7 +1161,7 @@ class ReplaySourceInput(GStreamerBaseInput):
             self._pending_rate_apply = True
             self.pipeline = Gst.ElementFactory.make("playbin", "replay_player")
             self.pipeline.set_property("uri", uri)
-            self.pipeline.set_property("flags", 0x00000001)  # Nur Video dekodieren (ideal für Zeitlupe)
+            self.pipeline.set_property("flags", 0x00000001)  # Video-only decoding (optimal for smooth slow motion)
 
             vbin = Gst.parse_bin_from_description(
                 f"videoconvert n-threads=2 ! videoscale method=nearest-neighbour ! "
@@ -1157,14 +1174,14 @@ class ReplaySourceInput(GStreamerBaseInput):
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PAUSED)
         except Exception as e:
-            print(f"[ReplaySourceInput] Fehler beim Laden des Replays: {e}")
+            print(f"[ReplaySourceInput] Failed to load replay clip: {e}")
 
 
 class HighlightsInput(GStreamerBaseInput):
     """
-    Spezial-Quelle '⭐ Highlights':
-    Sammelt automatisch alle vergangenen Replays als Playlist / Highlight-Archiv
-    und kann sie einzeln oder nacheinander (inkl. Zeitlupe 0.25x / 0.5x / 0.75x / 1.0x) abspielen.
+    Special source '⭐ Highlights':
+    Automatically collects all recorded instant replays as a playlist / highlight archive
+    and plays them individually or sequentially (including slow motion 0.25x / 0.5x / 0.75x / 1.0x).
     """
 
     def __init__(
@@ -1206,14 +1223,21 @@ class HighlightsInput(GStreamerBaseInput):
 
         p.setPen(QColor(255, 215, 80))
         p.setFont(QFont("Sans Serif", 22, QFont.Weight.Bold))
-        p.drawText(QRectF(cx, cy + 26, card_w, 42), Qt.AlignmentFlag.AlignCenter, "⭐ Highlights (Archiv)")
+        p.drawText(
+            QRectF(cx, cy + 26, card_w, 42),
+            Qt.AlignmentFlag.AlignCenter,
+            tr("⭐ Highlights (Archiv)", "⭐ Highlights (Archive)"),
+        )
 
         p.setPen(QColor(185, 175, 155))
         p.setFont(QFont("Sans Serif", 13))
         p.drawText(
             QRectF(cx + 20, cy + 82, card_w - 40, 48),
             Qt.AlignmentFlag.AlignCenter,
-            "Alle aufgezeichneten Replays werden hier automatisch als Highlights gesammelt.",
+            tr(
+                "Alle aufgezeichneten Replays werden hier automatisch als Highlights gesammelt.",
+                "All recorded replays are automatically collected here as highlights.",
+            ),
         )
         p.end()
         with self._lock:
@@ -1267,8 +1291,7 @@ class HighlightsInput(GStreamerBaseInput):
         ap = os.path.abspath(filepath)
         if ap not in self.clips:
             self.clips.append(ap)
-        # Falls noch kein Clip geladen war oder das aktuelle Highlight pausiert ist,
-        # bei erstem Clip sofort als Vorschau laden:
+        # If no clip was loaded yet, load the first clip into paused state immediately:
         if len(self.clips) == 1 or self.pipeline is None:
             self.select_clip(len(self.clips) - 1, auto_play=False)
 
@@ -1320,7 +1343,7 @@ class HighlightsInput(GStreamerBaseInput):
 
 
 def serialize_input(inp: BaseInput) -> dict:
-    """Serialisiert eine Input-Quelle als Dictionary zum Speichern in einer .litemix Set-Datei."""
+    """Serialize an input source into a dictionary for saving in a .litemix preset file."""
     d = {
         "type": inp.__class__.__name__,
         "name": inp.name,
@@ -1367,7 +1390,7 @@ def serialize_input(inp: BaseInput) -> dict:
 
 
 def deserialize_input(data: dict, width: int = 1280, height: int = 720) -> BaseInput | None:
-    """Erstellt eine Input-Quelle aus einem gespeicherten Set-Dictionary."""
+    """Instantiate an input source from a saved preset dictionary."""
     t = data.get("type", "")
     name = data.get("name", "Quelle")
     inp = None

@@ -1,7 +1,7 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "Neu in v0.2.0: Integrierte Web-Fernsteuerung (📱) für iPad, Tablet & Browser mit QR-Code, Sicherheits-Token, Live-Vorschaubildern (Preview/Program), Regie-Deck (CUT, FADE, FTB, Replay, Stream, Rec), Medien-Transportsteuerung und Bauchbinden-Editor."
+  "changelog": "New in v0.3.0: Built-in Help & Function Guide dialog (❓ / F12) explaining all buttons, icons, and workflows, live German/English language switcher (🌐 DE / 🌐 EN) across the desktop UI, Help window, and iPad Web Remote, plus full English code documentation on GitHub."
 }

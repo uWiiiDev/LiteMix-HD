@@ -4,13 +4,14 @@ import gi
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
+from i18n import tr
 
 
 def list_audio_devices():
     """
-    Liest verfügbare Mikrofone (Audio/Source) und System-Ausgänge (Audio/Sink als .monitor)
-    über PipeWire (pw-dump) aus.
-    Gibt (sources, sink_monitors) als Listen von (device_id, label) zurück.
+    Enumerate available microphones (Audio/Source) and system outputs (Audio/Sink as .monitor)
+    via PipeWire (pw-dump).
+    Returns (sources, sink_monitors) as lists of (device_id, label) tuples.
     """
     sources = []
     sink_monitors = []
@@ -27,20 +28,21 @@ def list_audio_devices():
             if mc == "Audio/Source":
                 sources.append((node_name, f"🎙️ {desc}"))
             elif mc == "Audio/Sink":
-                sink_monitors.append((f"{node_name}.monitor", f"🔊 {desc} (Desktop-Ton)"))
+                suffix = tr("Desktop-Ton", "Desktop Audio")
+                sink_monitors.append((f"{node_name}.monitor", f"🔊 {desc} ({suffix})"))
     except Exception as e:
-        print(f"[list_audio_devices] Fallback auf default: {e}")
+        print(f"[list_audio_devices] Fallback to default: {e}")
 
     if not sources:
-        sources.append(("default", "🎙️ Standard-Mikrofon (Default)"))
+        sources.append(("default", tr("🎙️ Standard-Mikrofon (Default)", "🎙️ Default Microphone")))
     if not sink_monitors:
-        sink_monitors.append(("default", "🔊 Standard System-Audio"))
+        sink_monitors.append(("default", tr("🔊 Standard System-Audio", "🔊 Default System Audio")))
 
     return sources, sink_monitors
 
 
 class MicAudioMonitor:
-    """Überwacht den Standard-Mikrofoneingang in Echtzeit für das VU-Meter im Audio-Mixer."""
+    """Monitors the default microphone input in real time to drive the audio mixer VU meter."""
 
     def __init__(self, device: str = "default"):
         self.device = device

@@ -1,44 +1,49 @@
 # 🎬 LiteMix HD
 
-**LiteMix HD** ist ein ressourcenschonender Live-Video-Mischer, Hardware-Recorder, Live-Streamer und Instant-Replay-Mischer für Linux (Wayland & X11), entwickelt in Python mit **PyQt6**, **GStreamer** und **FFmpeg VA-API**.
+**LiteMix HD** is a lightweight, hardware-accelerated live video switcher, recorder, live streamer, instant-replay engine, and tablet web remote controller for Linux (Wayland & X11), built in Python with **PyQt6**, **GStreamer**, and **FFmpeg VA-API**.
 
-Speziell optimiert für kompakte Laptops (z. B. Intel Core i5 Dual-Core mit Intel HD Graphics VA-API `/dev/dri/renderD128` und 1536×864 Bildschirmen).
-
----
-
-## ✨ Hauptfunktionen
-
-- **Vorschau (`PREVIEW`) & Live (`PROGRAM`) Monitoring:**
-  - Direkte Transportsteuerung (`▶`/`⏸`, `⏹`, Loop `🔁`, Auto-Return `↩`, Scrubber & Timecode) im Vorschaufenster und auf den Quellen-Kacheln.
-  - Übergänge per **CUT**, **FADE** (einstellbare Dauer), manueller **T-Bar** und **FTB** (Fade to Black).
-- **2 frei positionier- & skalierbare Overlays (`OV1` & `OV2`):**
-  - Direkt im `PROGRAM`-Monitor per Maus verschiebbar, über 8 Anfasser skalierbar, per Mausrad zoombar und mit Rechtsklick-Layout-Presets (PiP, Vollbild, 16:9-Snap).
-- **3 Broadcast-Bauchbinden-Templates (Lower Thirds):**
-  - *Klassisch Broadcast*, *Modern Kompakt (Pill)* und *Breaking / Sport Banner* mit Live-Vorschau.
-- **Manuelles Instant-Replay & Highlights in Zeitlupe (`h264_vaapi`):**
-  - Jederzeit per **`⏺ REPLAY`** starten und stoppen.
-  - Automatische Bereitstellung in **`⏪ Letztes Replay`** (pausiert im Vorschaufenster bei `00:00`, abspielbar in `0.25×`, `0.5×`, `0.75×`, `1.0×`).
-  - Alle Replays einer Sitzung landen automatisch in der **`⭐ Highlights`**-Quelle (Einzelauswahl oder Playlist).
-- **Hardware-beschleunigtes Recording & Live-Streaming (`h264_vaapi`):**
-  - Lippensynchrones Audio/Video-Streaming zu **YouTube Live, Twitch, Custom RTMP/RTMPS, SRT und UDP**.
-  - Lokale MP4-Aufnahme in `~/Videos` bei minimaler CPU-Last (~18 %).
-- **Audio-Mixer mit Audio-Follow-Video (AFV) & Echtzeit-VU-Metern:**
-  - Unterstützung für Mikrofone, System-/Desktop-Audio (PipeWire/PulseAudio) und Audio-Dateien (MP3/WAV/FLAC/OGG).
-- **Frei belegbare Tastenkürzel (Hotkeys):**
-  - 27 Aktionen frei per Tastendruck zuweisbar (`~/.config/litemix/shortcuts.json`).
-- **Integrierte GitHub-Updatefunktion (`🔄`):**
-  - Prüft direkt aus der Oberfläche heraus auf neue Versionen im GitHub-Repository [`uWiiiDev/LiteMix-HD`](https://github.com/uWiiiDev/LiteMix-HD), lädt Updates herunter und startet LiteMix HD auf Wunsch neu.
+Specifically engineered for compact laptops and low-power CPUs (e.g. Intel Core i5 Dual-Core with Intel HD Graphics VA-API `/dev/dri/renderD128` and 1536×864 screens).
 
 ---
 
-## 🚀 Starten
+## ✨ Key Features
+
+- **Bilingual User Interface & In-App Help (`🌐 DE/EN` & `❓`):**
+  - Live one-click language switching between **German (`DE`)** and **English (`EN`)** for both the desktop UI, the Web Remote UI, and the comprehensive built-in Help & Function Guide (`❓` / `F12`).
+- **Preview (`PREVIEW`) & Live (`PROGRAM`) Monitoring:**
+  - Direct media transport bar (`▶`/`⏸`, `⏹`, Loop `🔁`, Auto-Return `↩`, Scrubber & Timecode) inside the `PREVIEW` monitor and on each playable input tile.
+  - Broadcast transitions via **CUT**, **FADE** (configurable duration in ms), manual **T-Bar**, and **FTB** (Fade to Black).
+- **2 Freely Positionable & Resizable Overlays (`OV1` & `OV2`):**
+  - Drag directly inside the `PROGRAM` monitor with the mouse, resize via 8 corner/edge handles, zoom with the mouse wheel, or use right-click layout presets (PiP corners, fullscreen, 16:9 snap).
+- **3 Broadcast Lower Third Templates:**
+  - *Classic Broadcast*, *Modern Compact (Pill)*, and *Breaking / Sports Banner* with live preview and instant editing (`✎`).
+- **Manual Instant Replay & Slow-Motion Highlights (`h264_vaapi`):**
+  - Start and stop replay recording at any time via **`⏺ REPLAY`** (`Ctrl+R`).
+  - Automatically loads into **`⏪ Latest Replay`** (paused in `PREVIEW` at `00:00`, playable at `0.25×`, `0.5×`, `0.75×`, `1.0×`).
+  - Every recorded replay of a session is automatically added to the **`⭐ Highlights`** source (single clip or sequential playlist).
+- **iPad / Tablet / Browser Web Remote Control (`📱`):**
+  - Built-in multi-threaded HTTP remote server (`port 8088`) protected by a random security token and scannable **QR code**.
+  - Features live Preview/Program monitors, transition deck, source grid (`PRV`, `CUT`, `OV1`, `OV2`), media transport (`▶/⏸`, `⏹`, `🔁`, `↩`, slow-motion speed), audio mixer, and live lower-third text editor.
+- **Hardware-Accelerated Recording & Live Streaming (`h264_vaapi`):**
+  - Lip-synced audio/video streaming to **YouTube Live, Twitch, Custom RTMP/RTMPS, SRT, and UDP**.
+  - Local MP4 recording to `~/Videos` with minimal CPU usage (~18 %).
+- **Audio Mixer with Audio-Follow-Video (AFV) & Real-Time VU Meters:**
+  - Supports microphones, system/desktop audio loopback (PipeWire/PulseAudio), and audio files (MP3/WAV/FLAC/OGG).
+- **Customizable Keyboard Shortcuts (`⌨️`):**
+  - 28 actions freely assignable via keypress (`~/.config/litemix/shortcuts.json`).
+- **Built-in GitHub Auto-Updater (`🔄`):**
+  - Checks [`uWiiiDev/LiteMix-HD`](https://github.com/uWiiiDev/LiteMix-HD) directly from the UI, downloads updates, and restarts LiteMix HD on demand.
+
+---
+
+## 🚀 Getting Started
 
 ```bash
 ./run.sh
-# oder direkt:
+# or directly:
 python3 main.py
 ```
 
-## 🔄 Aktualisieren (Update)
+## 🔄 Updating
 
-Klicke unten in der Fußzeile von **LiteMix HD** einfach auf den **`🔄`**-Button (*„Auf GitHub nach Updates suchen“*), um das Projekt automatisch auf den neuesten Stand zu bringen.
+Click the **`🔄`** button in the bottom footer bar of **LiteMix HD** (*"Check GitHub for updates"*) to automatically update the application to the latest release.

@@ -9,13 +9,14 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 from PyQt6.QtGui import QImage
 from audio_mixer import list_audio_devices
+from i18n import tr
 
 
 def _create_sink_keepalive():
     """
-    Hält den PipeWire-Audio-Sink mit unhörbarem Dither (-72 dB) aktiv,
-    damit das .monitor-Loopback-Gerät auch bei pausierten/gestoppten Videos
-    durchgehend 48-kHz-Audio-Pakete an FFmpeg liefert (verhindert A/V-Versatz im Stream!).
+    Keep the PipeWire audio sink active with an inaudible dither (-72 dB) so the .monitor
+    loopback device continuously delivers 48 kHz audio packets to FFmpeg even when all
+    video/audio clips are paused or stopped (prevents A/V drift during live streams).
     """
     try:
         pipe = Gst.parse_launch(
@@ -31,10 +32,10 @@ def _create_sink_keepalive():
 
 def resolve_audio_capture_devices(inputs: list = None) -> tuple[str | None, str | None]:
     """
-    Ermittelt anhand der vorhandenen Quellen im Set, welche PulseAudio/PipeWire-Geräte
-    für Stream/Aufnahme abgegriffen werden sollen:
-    - sys_monitor: Desktop-/System-Audio (.monitor), falls Video, Audio-Datei, Browser oder System-Audio aktiv ist.
-    - mic_source: Mikrofon-Quelle, falls ein MicDeviceInput vorhanden ist.
+    Determine which PulseAudio/PipeWire capture devices should be used for recording/streaming
+    based on the active sources in the current set:
+    - sys_monitor: Desktop/system audio (.monitor) when a Video, Audio file, Browser, or SystemAudio source is present.
+    - mic_source: Microphone source when a MicDeviceInput source is present and active.
     """
     sources, monitors = list_audio_devices()
     default_monitor = monitors[0][0] if monitors else "default"
@@ -71,8 +72,8 @@ def resolve_audio_capture_devices(inputs: list = None) -> tuple[str | None, str 
 
 class VAAPIRecorder:
     """
-    Leichtgewichtiger Video-Recorder für Intel HD Graphics (VA-API h264_vaapi).
-    Nimmt das gemischte Program-Bild (BGRA) + optional Mikrofon/System-Audio auf.
+    Lightweight hardware video recorder for Intel HD Graphics (VA-API h264_vaapi).
+    Records the composited Program video output (BGRA) along with optional microphone/system audio.
     """
 
     def __init__(self, width: int = 1280, height: int = 720, fps: int = 30):
@@ -109,7 +110,7 @@ class VAAPIRecorder:
         if has_vaapi:
             cmd += ["-vaapi_device", "/dev/dri/renderD128"]
 
-        # Video input via stdin pipe (konstante Echtzeit-Taktrate durch _write_loop)
+        # Video input via stdin pipe (constant real-time frame rate paced by _write_loop)
         cmd += [
             "-thread_queue_size", "1024",
             "-f", "rawvideo",
@@ -121,7 +122,7 @@ class VAAPIRecorder:
 
         sys_dev, mic_dev = resolve_audio_capture_devices(inputs)
         if record_audio and not sys_dev and not mic_dev:
-            # Fallback falls keine spezifische Quelle übergeben wurde
+            # Fallback when no specific audio source was passed
             _, monitors = list_audio_devices()
             sys_dev = monitors[0][0] if monitors else "default"
 
@@ -207,7 +208,7 @@ class VAAPIRecorder:
             self._worker_thread.start()
             return True
         except Exception as e:
-            print(f"[VAAPIRecorder] Start fehlgeschlagen: {e}")
+            print(f"[VAAPIRecorder] Failed to start: {e}")
             self.recording = False
             return False
 
@@ -229,8 +230,8 @@ class VAAPIRecorder:
 
     def _write_loop(self):
         interval = 1.0 / max(1, self.fps)
-        # 1. Warte auf das erste Frame und sende es an FFmpeg, damit Input #0 (pipe:0)
-        # sofort initialisiert wird und FFmpeg direkt danach Input #1 (-f pulse) öffnet.
+        # 1. Wait for the first frame and write it to FFmpeg so Input #0 (pipe:0)
+        # initializes immediately and FFmpeg opens Input #1 (-f pulse) right after.
         while self.recording and self._proc and self._proc.stdin and self._latest_frame_bytes is None:
             time.sleep(0.005)
         if not (self.recording and self._proc and self._proc.stdin):
@@ -241,10 +242,9 @@ class VAAPIRecorder:
         except Exception:
             return
 
-        # 2. Ab diesem Moment puffert PulseAudio in Echtzeit. Ein Taktgeber-Thread
-        # legt im exakten Frame-Intervall die Live-Frames in eine FIFO-Queue, damit
-        # während der Encoder-/Container-Initialisierung kein einziges Video-Frame
-        # übersprungen wird (verhindert, dass das Bild dem Ton vorauseilt!).
+        # 2. From this instant on, PulseAudio buffers in real time. A precision sampler thread
+        # pushes live frames at exact intervals into a FIFO queue so no video frames are dropped
+        # during encoder/muxer initialization (prevents video leading audio).
         fifo = collections.deque(maxlen=int(self.fps * 5))
 
         def _sampler():
@@ -347,9 +347,9 @@ class VAAPIRecorder:
 
 class VAAPIStreamer:
     """
-    Leichtgewichtige Live-Streaming-Engine (RTMP / RTMPS / SRT / UDP)
-    mit Intel HD Graphics Hardware-Encoding (h264_vaapi).
-    Unterstützt YouTube Live, Twitch, Restream, Owncast sowie lokale SRT/UDP-Streams.
+    Lightweight live streaming engine (RTMP / RTMPS / SRT / UDP)
+    using Intel HD Graphics hardware encoding (h264_vaapi).
+    Supports YouTube Live, Twitch, Restream, Owncast, and local SRT/UDP streams.
     """
 
     PRESET_SERVERS = {
@@ -368,7 +368,7 @@ class VAAPIStreamer:
         self.platform = "YouTube Live (RTMP)"
         self.server_url = "rtmp://a.rtmp.youtube.com/live2"
         self.stream_key = ""
-        self.qp = 23  # Qualitätsstufe für Intel VA-API CQP (18=sehr hoch, 23=optimal für Stream, 28=niedrige Bitrate)
+        self.qp = 23  # Quality parameter for Intel VA-API CQP (18=very high, 23=optimal for streaming, 28=low bitrate)
         self.encoder_name = "Intel VA-API (h264_vaapi)"
         self.start_time = 0.0
         self.bitrate_kbps = 0.0
@@ -394,20 +394,26 @@ class VAAPIStreamer:
         inputs: list = None,
     ) -> tuple[bool, str]:
         if self.streaming:
-            return False, "Stream läuft bereits."
+            return False, tr("Stream läuft bereits.", "Stream is already running.")
 
         target_url = self.get_full_target_url()
         if not target_url:
-            return False, "Bitte Server-URL in den Stream-Einstellungen angeben."
+            return False, tr(
+                "Bitte Server-URL in den Stream-Einstellungen angeben.",
+                "Please enter a Server URL in the Stream Settings.",
+            )
         if self.platform in ("YouTube Live (RTMP)", "Twitch (RTMP)") and not self.stream_key.strip():
-            return False, "Bitte einen Stream-Schlüssel (Stream Key) in den Stream-Einstellungen eintragen."
+            return False, tr(
+                "Bitte einen Stream-Schlüssel (Stream Key) in den Stream-Einstellungen eintragen.",
+                "Please enter a Stream Key in the Stream Settings.",
+            )
 
         has_vaapi = os.path.exists("/dev/dri/renderD128")
         cmd = ["ffmpeg", "-y"]
         if has_vaapi:
             cmd += ["-vaapi_device", "/dev/dri/renderD128"]
 
-        # 1. Raw BGRA Video Input via Pipe (konstante Echtzeit-Taktrate durch _write_loop)
+        # 1. Raw BGRA Video Input via Pipe (constant real-time frame rate paced by _write_loop)
         cmd += [
             "-thread_queue_size", "1024",
             "-f", "rawvideo",
@@ -417,7 +423,7 @@ class VAAPIStreamer:
             "-i", "pipe:0",
         ]
 
-        # 2. Audio Input: Desktop-Monitor (.monitor) mit Keep-Alive gegen PipeWire-Suspend bei Pause!
+        # 2. Audio Input: Desktop monitor (.monitor) with keep-alive to prevent PipeWire suspend when paused
         use_real_audio = has_live_audio and not audio_muted
         sys_dev, mic_dev = resolve_audio_capture_devices(inputs) if use_real_audio else (None, None)
         if use_real_audio and not sys_dev and not mic_dev:
@@ -450,7 +456,7 @@ class VAAPIStreamer:
         else:
             cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
 
-        # 3. Video Encoder (Keyframes alle 2 Sekunden: -g 60 bei 30 FPS)
+        # 3. Video Encoder (keyframe interval every 2 seconds: -g 60 at 30 FPS)
         gop = self.fps * 2
         if has_vaapi:
             self.encoder_name = "Intel VA-API (h264_vaapi)"
@@ -471,7 +477,7 @@ class VAAPIStreamer:
                 "-g", str(gop),
             ]
 
-        # 4. Audio Filter & AAC Encoder (adelay=90|90 gleicht die ~90ms PipeWire/PulseAudio-Latenz aus)
+        # 4. Audio filter & AAC encoder (adelay=90|90 compensates for ~90ms PipeWire/PulseAudio buffer latency)
         if use_real_audio:
             eff_vol = max(0.0, min(1.5, audio_gain))
             if sys_dev and mic_dev:
@@ -501,7 +507,7 @@ class VAAPIStreamer:
         cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-shortest"]
         cmd += ["-progress", "pipe:1", "-stats_period", "0.5"]
 
-        # 5. Output Format (FLV für RTMP/RTMPS, MPEG-TS für UDP/SRT)
+        # 5. Output format (FLV for RTMP/RTMPS, MPEG-TS for UDP/SRT)
         if target_url.startswith(("udp://", "srt://")):
             cmd += ["-f", "mpegts", target_url]
         else:
@@ -522,10 +528,10 @@ class VAAPIStreamer:
             self._worker_thread.start()
             self._stats_thread = threading.Thread(target=self._stats_loop, daemon=True)
             self._stats_thread.start()
-            return True, "Stream gestartet"
+            return True, tr("Stream gestartet", "Stream started")
         except Exception as e:
             self.streaming = False
-            return False, f"Stream-Fehler: {e}"
+            return False, f"Stream Error: {e}"
 
     def is_alive(self) -> bool:
         if not self.streaming or not self._proc:
@@ -553,8 +559,8 @@ class VAAPIStreamer:
 
     def _write_loop(self):
         interval = 1.0 / max(1, self.fps)
-        # 1. Warte auf das erste Frame und sende es an FFmpeg, damit Input #0 (pipe:0)
-        # sofort initialisiert wird und FFmpeg direkt danach Input #1 (-f pulse) öffnet.
+        # 1. Wait for the first frame and write it to FFmpeg so Input #0 (pipe:0)
+        # initializes immediately and FFmpeg opens Input #1 (-f pulse) right after.
         while self.streaming and self._proc and self._proc.stdin and self._latest_frame_bytes is None:
             time.sleep(0.005)
         if not (self.streaming and self._proc and self._proc.stdin):
@@ -566,10 +572,10 @@ class VAAPIStreamer:
             self.streaming = False
             return
 
-        # 2. Ab diesem Moment puffert PulseAudio in Echtzeit, während FFmpeg den
-        # RTMP-Handshake (350-800ms) ausführt. Ein Taktgeber-Thread legt im exakten
-        # Frame-Intervall die Live-Frames in eine FIFO-Queue, damit während des
-        # RTMP-Handshakes kein einziges Video-Frame übersprungen wird!
+        # 2. From this moment on, PulseAudio buffers in real time while FFmpeg performs
+        # the RTMP handshake (350-800ms). A precision sampler thread places live frames
+        # at exact frame intervals into a FIFO queue so no video frames are skipped
+        # during the RTMP handshake.
         fifo = collections.deque(maxlen=int(self.fps * 5))
 
         def _sampler():
@@ -673,10 +679,10 @@ class VAAPIStreamer:
 
 class VAAPIReplayRecorder:
     """
-    Ultraschneller Hardware-Replay-Recorder (Intel VA-API h264_vaapi, 0 MB RAM-Overhead).
-    Zeichnet auf Knopfdruck das laufende Program-Bild mit kurzem Keyframe-Intervall (-g 10)
-    als MP4-Clip auf die SSD auf, damit es nach dem Stopp sofort in der 'Letztes Replay'-Quelle
-    und in der 'Highlights'-Quelle (inkl. butterweicher Zeitlupe) bereitsteht.
+    Ultra-fast hardware instant replay recorder (Intel VA-API h264_vaapi, 0 MB RAM overhead).
+    Records the live Program output on demand with short keyframe intervals (-g 10)
+    as an MP4 clip to SSD so it is immediately available in 'Last Replay' and 'Highlights'
+    with smooth slow-motion playback.
     """
 
     def __init__(self, width: int = 1280, height: int = 720, fps: int = 30):
@@ -725,7 +731,7 @@ class VAAPIReplayRecorder:
             "-i", "pipe:0",
         ]
 
-        # Kurze Keyframe-Abstände (-g 10) für verzögerungsfreie Zeitlupe & Scrubbing in GStreamer
+        # Short keyframe intervals (-g 10) for responsive slow-motion & scrubbing in GStreamer
         if has_vaapi:
             cmd += [
                 "-vf", "format=nv12,hwupload",
@@ -757,7 +763,7 @@ class VAAPIReplayRecorder:
             self._worker_thread.start()
             return True
         except Exception as e:
-            print(f"[VAAPIReplayRecorder] Fehler beim Starten: {e}")
+            print(f"[VAAPIReplayRecorder] Failed to start: {e}")
             self.recording = False
             return False
 
@@ -820,5 +826,3 @@ class VAAPIReplayRecorder:
         if self.output_path and os.path.exists(self.output_path) and os.path.getsize(self.output_path) > 1024:
             return self.output_path
         return None
-
-

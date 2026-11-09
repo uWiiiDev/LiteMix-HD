@@ -31,6 +31,7 @@ from inputs import (
 from audio_mixer import MicAudioMonitor, list_audio_devices
 from recorder import VAAPIRecorder, VAAPIStreamer, VAAPIReplayRecorder
 from web_remote import WebRemoteController, WebRemoteDialog
+from i18n import tr, get_lang, set_lang, toggle_lang, HelpDialog
 
 
 DARK_STYLESHEET = """
@@ -179,10 +180,10 @@ QSlider::handle:horizontal {
 
 class VideoMonitorWidget(QWidget):
     """
-    Zeigt ein 16:9 Vorschaubild (Preview oder Program) mit Broadcast-Rahmen an.
-    Im Program-Monitor können aktive Overlays (OV1 & OV2) direkt mit der Maus
-    frei verschoben, über 8 Anfasser (Ecken/Kanten) oder das Mausrad skaliert
-    und per Rechtsklick/Doppelklick ausgerichtet werden.
+    Displays a 16:9 video monitor (Preview or Program) with a broadcast border.
+    In the Program monitor, active overlays (OV1 & OV2) can be freely dragged with
+    the mouse, resized via 8 corner/edge handles or the mouse wheel, and aligned
+    via right-click or double-click.
     """
 
     def __init__(self, title: str, border_color: QColor, main_win=None, interactive_overlays: bool = False):
@@ -198,23 +199,35 @@ class VideoMonitorWidget(QWidget):
         self._hover_inside = False
         self._selected_ovl = 1
         self._drag_ovl = None
-        self._drag_mode = None  # 'move' oder Handle ('nw','n','ne','e','se','s','sw','w')
+        self._drag_mode = None  # 'move' or handle ('nw','n','ne','e','se','s','sw','w')
         self._drag_start_mix = (0.0, 0.0)
         self._drag_orig_rect = [0.0, 0.0, 100.0, 100.0]
         self._gizmo_flash_until = 0.0
         self._preview_seeking = False
 
         self.setMouseTracking(True)
+        self.refresh_language()
+
+    def refresh_language(self):
         if self.interactive_overlays:
             self.setToolTip(
-                "Tipp: Aktive Overlays (OV1/OV2) direkt mit der Maus ziehen, an den Ecken/Kanten "
-                "skalieren, mit dem Mausrad vergrößern/verkleinern oder rechtsklicken."
+                tr(
+                    "Tipp: Aktive Overlays (OV1/OV2) direkt mit der Maus ziehen, an den Ecken/Kanten "
+                    "skalieren, mit dem Mausrad vergrößern/verkleinern oder rechtsklicken.",
+                    "Tip: Drag active overlays (OV1/OV2) directly with the mouse, resize via "
+                    "corners/edges, scale with the mouse wheel, or right-click for presets.",
+                )
             )
         else:
             self.setToolTip(
-                "Vorschau (PREVIEW): Abspielbare Videos, Audiodateien und Replays können hier "
-                "direkt über ▶/⏸ und ⏹ gestartet, gestoppt oder gespult werden."
+                tr(
+                    "Vorschau (PREVIEW): Abspielbare Videos, Audiodateien und Replays können hier "
+                    "direkt über ▶/⏸ und ⏹ gestartet, gestoppt oder gespult werden.",
+                    "Preview (PREVIEW): Playable videos, audio files, and replays can be started, "
+                    "stopped, or scrubbed directly here via ▶/⏸ and ⏹.",
+                )
             )
+        self.update()
 
     def _get_preview_playable_input(self):
         if self.interactive_overlays or not self.main_win:
@@ -319,8 +332,8 @@ class VideoMonitorWidget(QWidget):
         if not active:
             return None, None
 
-        # Sortierung: kleineres Overlay zuerst (damit ein kleines PiP innerhalb eines
-        # Vollbild-Overlays immer direkt greifbar ist), bei ähnlicher Größe OV2 (oben) zuerst.
+        # Sort order: smaller overlay first (so a small PiP inside a full-screen
+        # overlay can always be grabbed directly), or OV2 (top layer) first if similar in size.
         def _sort_key(item):
             ch, r = item
             area = max(1.0, r[2] * r[3])
@@ -335,8 +348,8 @@ class VideoMonitorWidget(QWidget):
                 if abs(wx - hx) <= handle_radius and abs(wy - hy) <= handle_radius:
                     return ch, hname
 
-        # Innenfläche prüfen: Wenn ein Overlay deutlich kleiner ist (< 50% Fläche), hat es Vorrang;
-        # sonst hat das obere Layer (OV2 vor OV1) Vorrang.
+        # Interior hit-test: if one overlay is significantly smaller (< 55% area), prioritize it;
+        # otherwise prioritize the top layer (OV2 before OV1).
         if len(active) == 2:
             a1 = active[0][1][2] * active[0][1][3]
             a2 = active[1][1][2] * active[1][1][3]
@@ -345,7 +358,7 @@ class VideoMonitorWidget(QWidget):
             elif a2 < a1 * 0.55:
                 ordered_for_body = [active[1], active[0]]
             else:
-                ordered_for_body = [active[1], active[0]]  # OV2 liegt über OV1
+                ordered_for_body = [active[1], active[0]]  # OV2 sits above OV1
         else:
             ordered_for_body = active
 
@@ -495,7 +508,7 @@ class VideoMonitorWidget(QWidget):
             if self._drag_mode == "move":
                 nx = ox + dx
                 ny = oy + dy
-                # Sanftes Einrasten an den Bildschirmrändern (0 / 1280 / 720)
+                # Soft snapping to screen edges (0 / 1280 / 720)
                 if abs(nx) < snap:
                     nx = 0.0
                 elif abs((nx + ow) - mw) < snap:
@@ -530,7 +543,7 @@ class VideoMonitorWidget(QWidget):
                 nw = max(min_w, x2 - x1)
                 nh = max(min_h, y2 - y1)
 
-                # Optional: Mit gedrückter Shift-Taste Seitenverhältnis beim Eck-Ziehen beibehalten
+                # Optional: Hold Shift while dragging a corner to lock aspect ratio
                 if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) and len(mode) == 2:
                     aspect = max(0.2, ow / max(1.0, oh))
                     nh = max(min_h, nw / aspect)
@@ -637,40 +650,48 @@ class VideoMonitorWidget(QWidget):
             self.update()
 
         for target_ch, _ in active:
-            sub = menu.addMenu(f"🎛️ Overlay OV{target_ch} Layout & Größe")
+            sub = menu.addMenu(
+                tr(f"🎛️ Overlay OV{target_ch} Layout & Größe", f"🎛️ Overlay OV{target_ch} Layout & Size")
+            )
             sub.addAction(
-                f"🔄 Standard-Größe für OV{target_ch} (Doppelklick)",
+                tr(
+                    f"🔄 Standard-Größe für OV{target_ch} (Doppelklick)",
+                    f"🔄 Default Size for OV{target_ch} (Double-Click)",
+                ),
                 lambda c=target_ch: self.main_win.reset_overlay_rect(c),
             )
             sub.addAction(
-                "🖥️ Vollbild (1280×720)",
+                tr("🖥️ Vollbild (1280×720)", "🖥️ Fullscreen (1280×720)"),
                 lambda c=target_ch: _apply(c, [0.0, 0.0, mw, mh]),
             )
             sub.addSeparator()
             sub.addAction(
-                "↘️ PiP Unten Rechts (360×202)",
+                tr("↘️ PiP Unten Rechts (360×202)", "↘️ PiP Bottom Right (360×202)"),
                 lambda c=target_ch: _apply(c, [mw - 396.0, mh - 238.0, 360.0, 202.0]),
             )
             sub.addAction(
-                "↙️ PiP Unten Links (360×202)",
+                tr("↙️ PiP Unten Links (360×202)", "↙️ PiP Bottom Left (360×202)"),
                 lambda c=target_ch: _apply(c, [36.0, mh - 238.0, 360.0, 202.0]),
             )
             sub.addAction(
-                "↗️ PiP Oben Rechts (360×202)",
+                tr("↗️ PiP Oben Rechts (360×202)", "↗️ PiP Top Right (360×202)"),
                 lambda c=target_ch: _apply(c, [mw - 396.0, 36.0, 360.0, 202.0]),
             )
             sub.addAction(
-                "↖️ PiP Oben Links (360×202)",
+                tr("↖️ PiP Oben Links (360×202)", "↖️ PiP Top Left (360×202)"),
                 lambda c=target_ch: _apply(c, [36.0, 36.0, 360.0, 202.0]),
             )
             sub.addSeparator()
             sub.addAction(
-                "📏 Seitenverhältnis auf 16:9 anpassen",
+                tr("📏 Seitenverhältnis auf 16:9 anpassen", "📏 Snap Aspect Ratio to 16:9"),
                 lambda c=target_ch: self.main_win.snap_overlay_16_9(c),
             )
             border_on = self.main_win.ovl1_show_border if target_ch == 1 else self.main_win.ovl2_show_border
             act_border = sub.addAction(
-                f"🖼️ Farbrahmen im Stream {'ausblenden' if border_on else 'einblenden'}",
+                tr(
+                    f"🖼️ Farbrahmen im Stream {'ausblenden' if border_on else 'einblenden'}",
+                    f"🖼️ {'Hide' if border_on else 'Show'} Colored Border in Stream",
+                ),
                 lambda c=target_ch: self.main_win.toggle_overlay_border(c),
             )
         menu.exec(event.globalPos())
@@ -689,7 +710,7 @@ class VideoMonitorWidget(QWidget):
         if self.frame_img and not self.frame_img.isNull():
             p.drawImage(QRectF(vx, vy, target_w, target_h), self.frame_img)
 
-        # Interaktive Overlay-Anfasser (nur im UI-Monitor sichtbar, nicht im Stream!)
+        # Interactive overlay handles (visible only in UI monitor, never in stream!)
         active_ovls = self._active_overlays()
         show_gizmos = (
             self._hover_inside
@@ -709,14 +730,14 @@ class VideoMonitorWidget(QWidget):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawRect(wrect)
 
-                # 8 Anfasser-Quadrate an Ecken und Kanten
+                # 8 handle squares at corners and edges
                 p.setPen(QPen(QColor(15, 18, 24), 1))
                 p.setBrush(col)
                 hs = 7.0 if is_sel else 5.5
                 for _, (hx, hy) in self._handle_points(wrect).items():
                     p.drawRect(QRectF(hx - hs * 0.5, hy - hs * 0.5, hs, hs))
 
-                # Kompaktes Badge mit Overlay-Name & Größe
+                # Compact badge with overlay name & dimensions
                 badge_txt = f"OV{ch}: {int(rect[2])}×{int(rect[3])}"
                 p.setFont(QFont("Sans Serif", 8, QFont.Weight.Bold))
                 fm = p.fontMetrics()
@@ -730,7 +751,7 @@ class VideoMonitorWidget(QWidget):
                 p.drawText(bx + 5, by + 11, badge_txt)
             p.restore()
 
-        # Interaktive Medien-Steuerleiste im PREVIEW-Monitor (für Video, Audio, Replay & Highlights)
+        # Interactive media transport bar in PREVIEW monitor (for Video, Audio, Replay & Highlights)
         prv_inp = self._get_preview_playable_input()
         if prv_inp is not None:
             p.save()
@@ -742,7 +763,7 @@ class VideoMonitorWidget(QWidget):
             p.setPen(QPen(QColor(50, 62, 82, 200), 1))
             p.drawLine(int(bar_rect.left()), int(bar_rect.top()), int(bar_rect.right()), int(bar_rect.top()))
 
-            # Play / Pause Button
+            # Play / Pause button
             is_paused = getattr(prv_inp, "paused", True)
             play_bg = QColor(32, 165, 85) if not is_paused else QColor(42, 50, 68)
             p.setBrush(play_bg)
@@ -752,14 +773,14 @@ class VideoMonitorWidget(QWidget):
             p.setFont(QFont("Sans Serif", 9, QFont.Weight.Bold))
             p.drawText(btn_play_rect, Qt.AlignmentFlag.AlignCenter, "▶" if is_paused else "⏸")
 
-            # Stop Button
+            # Stop button
             p.setBrush(QColor(42, 50, 68))
             p.setPen(QPen(QColor(90, 105, 135), 1))
             p.drawRoundedRect(btn_stop_rect, 3, 3)
             p.setPen(QColor(235, 240, 250))
             p.drawText(btn_stop_rect, Qt.AlignmentFlag.AlignCenter, "⏹")
 
-            # Loop Button (Endlosschleife ein/aus)
+            # Loop button (infinite repeat on/off)
             is_loop = bool(getattr(prv_inp, "loop_enabled", False))
             p.setBrush(QColor(30, 107, 158) if is_loop else QColor(42, 50, 68))
             p.setPen(QPen(QColor(65, 168, 240) if is_loop else QColor(90, 105, 135), 1))
@@ -767,7 +788,7 @@ class VideoMonitorWidget(QWidget):
             p.setPen(QColor(255, 255, 255) if is_loop else QColor(175, 185, 205))
             p.drawText(btn_loop_rect, Qt.AlignmentFlag.AlignCenter, "🔁")
 
-            # Return-to-Preview Button (Nach Ende zurück zum Vorschaufenster)
+            # Return-to-Preview button (jump back to preview when clip finishes)
             is_ret = bool(getattr(prv_inp, "return_to_preview_on_eos", False))
             p.setBrush(QColor(26, 130, 74) if is_ret else QColor(42, 50, 68))
             p.setPen(QPen(QColor(50, 215, 115) if is_ret else QColor(90, 105, 135), 1))
@@ -820,7 +841,7 @@ class VideoMonitorWidget(QWidget):
         p.drawText(vx + 110, vy - 5, self.source_label)
 
         if active_ovls and self.interactive_overlays:
-            hint_txt = "🖱 OV1/OV2 ziehbar"
+            hint_txt = tr("🖱 OV1/OV2 ziehbar", "🖱 Drag OV1/OV2")
             p.setPen(QColor(0, 210, 255))
             p.setFont(QFont("Sans Serif", 8))
             hw = p.fontMetrics().horizontalAdvance(hint_txt)
@@ -829,7 +850,7 @@ class VideoMonitorWidget(QWidget):
 
 
 class VUMeterBar(QWidget):
-    """Vertikales Echtzeit-VU-Meter (Grün / Gelb / Rot)."""
+    """Vertical real-time audio VU meter (Green / Yellow / Red)."""
 
     def __init__(self):
         super().__init__()
@@ -865,7 +886,7 @@ class VUMeterBar(QWidget):
 
 
 class MiniHorizVUBar(QWidget):
-    """Schmaler horizontaler Live-Pegelbalken direkt in einer Audio/Video-Kachel."""
+    """Compact horizontal live audio level bar inside an audio/video input tile."""
 
     def __init__(self):
         super().__init__()
@@ -890,7 +911,7 @@ class MiniHorizVUBar(QWidget):
 
 
 class InputTileWidget(QFrame):
-    """Kompakte Kachel für eine einzelne Quelle im vMix-Input-Grid (inkl. Einzel-Audioregler & Video-Transport)."""
+    """Compact tile for an individual source in the vMix input grid (with per-source audio & media transport)."""
 
     def __init__(self, index: int, inp: BaseInput, main_win):
         super().__init__()
@@ -904,6 +925,11 @@ class InputTileWidget(QFrame):
         self.btn_stop_media = None
         self.seek_slider = None
         self.lbl_timecode = None
+        self.lbl_aud_tag = None
+        self.btn_cfg = None
+        self.btn_flip = None
+        self.btn_prev_hl = None
+        self.btn_next_hl = None
         self._media_duration = 0.0
         self._seek_cooldown_until = 0.0
 
@@ -935,25 +961,21 @@ class InputTileWidget(QFrame):
         btn_row.setSpacing(2)
 
         self.btn_prv = QPushButton("PRV")
-        self.btn_prv.setToolTip("In Vorschau (Preview) laden")
         self.btn_prv.clicked.connect(lambda: self.main_win.set_preview(self.index))
 
         self.btn_pgm = QPushButton("CUT")
-        self.btn_pgm.setToolTip("Direkt auf Live (Program) schalten")
         self.btn_pgm.clicked.connect(lambda: self.main_win.cut_input_to_program(self.index))
 
         self.btn_ovl1 = QPushButton("OV1")
-        self.btn_ovl1.setToolTip("Overlay 1: Bild-in-Bild (PiP rechts unten)")
         self.btn_ovl1.clicked.connect(lambda: self.main_win.toggle_overlay(1, self.index))
 
         self.btn_ovl2 = QPushButton("OV2")
-        self.btn_ovl2.setToolTip("Overlay 2: Vollbild-Overlay / Bauchbinde")
         self.btn_ovl2.clicked.connect(lambda: self.main_win.toggle_overlay(2, self.index))
 
         if isinstance(inp, AudioInputBase):
-            lbl_aud_tag = QLabel("🎵 Audio-Datei" if isinstance(inp, AudioFileInput) else "🎧 Audio-Eingang")
-            lbl_aud_tag.setStyleSheet("color: #909ab0; font-size: 9px;")
-            btn_row.addWidget(lbl_aud_tag, 1)
+            self.lbl_aud_tag = QLabel()
+            self.lbl_aud_tag.setStyleSheet("color: #909ab0; font-size: 9px;")
+            btn_row.addWidget(self.lbl_aud_tag, 1)
             if isinstance(inp, AudioFileInput):
                 for b in (self.btn_prv, self.btn_pgm):
                     b.setStyleSheet("padding: 1px 4px; font-size: 9px;")
@@ -964,30 +986,27 @@ class InputTileWidget(QFrame):
                 btn_row.addWidget(b)
 
             if isinstance(inp, LowerThirdInput):
-                btn_cfg = QPushButton("✎")
-                btn_cfg.setFixedWidth(18)
-                btn_cfg.setToolTip("Bauchbinden-Text bearbeiten")
-                btn_cfg.setStyleSheet("padding: 1px; font-size: 9px;")
-                btn_cfg.clicked.connect(lambda: self.main_win.edit_lower_third(inp))
-                btn_row.addWidget(btn_cfg)
+                self.btn_cfg = QPushButton("✎")
+                self.btn_cfg.setFixedWidth(18)
+                self.btn_cfg.setStyleSheet("padding: 1px; font-size: 9px;")
+                self.btn_cfg.clicked.connect(lambda: self.main_win.edit_lower_third(inp))
+                btn_row.addWidget(self.btn_cfg)
             elif isinstance(inp, WebBrowserInput):
-                btn_cfg = QPushButton("🌐")
-                btn_cfg.setFixedWidth(18)
-                btn_cfg.setToolTip("Browserfenster öffnen/bedienen")
-                btn_cfg.setStyleSheet("padding: 1px; font-size: 9px;")
-                btn_cfg.clicked.connect(inp.show_browser)
-                btn_row.addWidget(btn_cfg)
+                self.btn_cfg = QPushButton("🌐")
+                self.btn_cfg.setFixedWidth(18)
+                self.btn_cfg.setStyleSheet("padding: 1px; font-size: 9px;")
+                self.btn_cfg.clicked.connect(inp.show_browser)
+                btn_row.addWidget(self.btn_cfg)
             elif isinstance(inp, V4L2CameraInput):
-                btn_flip = QPushButton("⇄")
-                btn_flip.setFixedWidth(18)
-                btn_flip.setToolTip("Kamera horizontal spiegeln (Flip)")
-                btn_flip.setStyleSheet("padding: 1px; font-size: 9px;")
-                btn_flip.clicked.connect(inp.toggle_mirror)
-                btn_row.addWidget(btn_flip)
+                self.btn_flip = QPushButton("⇄")
+                self.btn_flip.setFixedWidth(18)
+                self.btn_flip.setStyleSheet("padding: 1px; font-size: 9px;")
+                self.btn_flip.clicked.connect(inp.toggle_mirror)
+                btn_row.addWidget(self.btn_flip)
 
         layout.addLayout(btn_row)
 
-        # Transport & Scrubber row for playable media (Video, Audio, Replay, Highlights)
+        # Transport & scrubber row for playable media (Video, Audio, Replay, Highlights)
         self.speed_buttons: list[tuple[float, QPushButton]] = []
         self.btn_hl_select = None
         self.btn_hl_speed = None
@@ -1000,14 +1019,12 @@ class InputTileWidget(QFrame):
 
             self.btn_play_pause = QPushButton("▶" if inp.paused else "⏸")
             self.btn_play_pause.setFixedSize(17, 16)
-            self.btn_play_pause.setToolTip("Start / Pause")
             self.btn_play_pause.setStyleSheet("padding: 0px; font-size: 9px;")
             self.btn_play_pause.clicked.connect(self._on_play_pause_clicked)
             trans_row.addWidget(self.btn_play_pause)
 
             self.btn_stop_media = QPushButton("⏹")
             self.btn_stop_media.setFixedSize(17, 16)
-            self.btn_stop_media.setToolTip("Stopp (Zurück zum Anfang 0:00)")
             self.btn_stop_media.setStyleSheet("padding: 0px; font-size: 9px;")
             self.btn_stop_media.clicked.connect(self._on_stop_clicked)
             trans_row.addWidget(self.btn_stop_media)
@@ -1017,7 +1034,6 @@ class InputTileWidget(QFrame):
                 self.btn_loop.setCheckable(True)
                 self.btn_loop.setChecked(bool(getattr(inp, "loop_enabled", False)))
                 self.btn_loop.setFixedSize(17, 16)
-                self.btn_loop.setToolTip("Endlosschleife (Loop) ein-/ausschalten")
                 self._refresh_loop_button()
                 self.btn_loop.toggled.connect(self._on_loop_toggled)
                 trans_row.addWidget(self.btn_loop)
@@ -1026,9 +1042,6 @@ class InputTileWidget(QFrame):
                 self.btn_return_prv.setCheckable(True)
                 self.btn_return_prv.setChecked(bool(getattr(inp, "return_to_preview_on_eos", False)))
                 self.btn_return_prv.setFixedSize(17, 16)
-                self.btn_return_prv.setToolTip(
-                    "Nach Ende zurück zum Vorschaufenster springen (schaltet bei Live-Ende automatisch zurück)"
-                )
                 self._refresh_return_prv_button()
                 self.btn_return_prv.toggled.connect(self._on_return_prv_toggled)
                 trans_row.addWidget(self.btn_return_prv)
@@ -1036,7 +1049,6 @@ class InputTileWidget(QFrame):
             self.seek_slider = QSlider(Qt.Orientation.Horizontal)
             self.seek_slider.setRange(0, 1000)
             self.seek_slider.setValue(0)
-            self.seek_slider.setToolTip("Im Video/Replay spulen (Scrubbing)")
             self.seek_slider.valueChanged.connect(self._on_seek_slider_changed)
             trans_row.addWidget(self.seek_slider, 1)
 
@@ -1048,7 +1060,7 @@ class InputTileWidget(QFrame):
 
             layout.addLayout(trans_row)
 
-        # Slow-Motion & Clip-Steuerzeile für ReplaySourceInput und HighlightsInput
+        # Slow-motion & clip control row for ReplaySourceInput and HighlightsInput
         if isinstance(inp, ReplaySourceInput):
             spd_row = QHBoxLayout()
             spd_row.setSpacing(2)
@@ -1058,7 +1070,6 @@ class InputTileWidget(QFrame):
             for rate_val, rate_txt in [(0.25, "0.25×"), (0.5, "0.5×"), (0.75, "0.75×"), (1.0, "1.0×")]:
                 b_spd = QPushButton(rate_txt)
                 b_spd.setFixedHeight(17)
-                b_spd.setToolTip(f"Abspieltempo auf {rate_txt} setzen")
                 b_spd.clicked.connect(lambda _, r=rate_val: self._on_set_playback_rate(r))
                 spd_row.addWidget(b_spd, 1)
                 self.speed_buttons.append((rate_val, b_spd))
@@ -1069,30 +1080,26 @@ class InputTileWidget(QFrame):
             hl_row = QHBoxLayout()
             hl_row.setSpacing(2)
 
-            btn_prev = QPushButton("⏮")
-            btn_prev.setFixedSize(18, 17)
-            btn_prev.setToolTip("Vorheriges Highlight")
-            btn_prev.setStyleSheet("padding: 0px; font-size: 8px;")
-            btn_prev.clicked.connect(self._on_hl_prev)
-            hl_row.addWidget(btn_prev)
+            self.btn_prev_hl = QPushButton("⏮")
+            self.btn_prev_hl.setFixedSize(18, 17)
+            self.btn_prev_hl.setStyleSheet("padding: 0px; font-size: 8px;")
+            self.btn_prev_hl.clicked.connect(self._on_hl_prev)
+            hl_row.addWidget(self.btn_prev_hl)
 
             self.btn_hl_select = QPushButton("🎬 #0/0 ▾")
             self.btn_hl_select.setFixedHeight(17)
-            self.btn_hl_select.setToolTip("Vergangenes Highlight auswählen oder Auto-Play umschalten")
             self.btn_hl_select.setStyleSheet("padding: 0px 3px; font-size: 8px;")
             self.btn_hl_select.clicked.connect(self._open_highlights_clip_menu)
             hl_row.addWidget(self.btn_hl_select, 1)
 
-            btn_next = QPushButton("⏭")
-            btn_next.setFixedSize(18, 17)
-            btn_next.setToolTip("Nächstes Highlight")
-            btn_next.setStyleSheet("padding: 0px; font-size: 8px;")
-            btn_next.clicked.connect(self._on_hl_next)
-            hl_row.addWidget(btn_next)
+            self.btn_next_hl = QPushButton("⏭")
+            self.btn_next_hl.setFixedSize(18, 17)
+            self.btn_next_hl.setStyleSheet("padding: 0px; font-size: 8px;")
+            self.btn_next_hl.clicked.connect(self._on_hl_next)
+            hl_row.addWidget(self.btn_next_hl)
 
             self.btn_hl_speed = QPushButton(f"⏱{inp.playback_rate:g}×")
             self.btn_hl_speed.setFixedSize(40, 17)
-            self.btn_hl_speed.setToolTip("Zeitlupen-Geschwindigkeit für Highlights wählen")
             self.btn_hl_speed.setStyleSheet("padding: 0px 2px; font-size: 8px; background-color: #1e4d6b; color: white;")
             self.btn_hl_speed.clicked.connect(self._open_highlights_speed_menu)
             hl_row.addWidget(self.btn_hl_speed)
@@ -1116,7 +1123,6 @@ class InputTileWidget(QFrame):
             self.btn_mute_tile.setCheckable(True)
             self.btn_mute_tile.setChecked(inp.muted)
             self.btn_mute_tile.setFixedSize(22, 18)
-            self.btn_mute_tile.setToolTip("Ton dieser Quelle stummschalten (Mute)")
             self.btn_mute_tile.setStyleSheet(
                 "padding: 0px; font-size: 9px; background-color: #c82828; color: white;"
                 if inp.muted else "padding: 0px; font-size: 9px;"
@@ -1127,7 +1133,6 @@ class InputTileWidget(QFrame):
             self.vol_slider = QSlider(Qt.Orientation.Horizontal)
             self.vol_slider.setRange(0, 150)
             self.vol_slider.setValue(int(inp.volume * 100))
-            self.vol_slider.setToolTip("Lautstärke dieser Quelle (0% - 150%)")
             self.vol_slider.valueChanged.connect(self._on_tile_vol_changed)
             aud_row.addWidget(self.vol_slider, 1)
 
@@ -1140,6 +1145,58 @@ class InputTileWidget(QFrame):
             layout.addLayout(aud_row)
         else:
             layout.addStretch()
+
+        self.refresh_language()
+
+    def refresh_language(self):
+        self.btn_prv.setToolTip(tr("In Vorschau (Preview) laden", "Load into Preview (PRV)"))
+        self.btn_pgm.setToolTip(tr("Direkt auf Live (Program) schalten", "Cut directly to Live (Program)"))
+        self.btn_ovl1.setToolTip(tr("Overlay 1: Bild-in-Bild (PiP rechts unten)", "Overlay 1: Picture-in-Picture (PiP bottom-right)"))
+        self.btn_ovl2.setToolTip(tr("Overlay 2: Vollbild-Overlay / Bauchbinde", "Overlay 2: Fullscreen Overlay / Lower Third"))
+        if self.lbl_aud_tag:
+            self.lbl_aud_tag.setText(
+                tr("🎵 Audio-Datei", "🎵 Audio File")
+                if isinstance(self.inp, AudioFileInput)
+                else tr("🎧 Audio-Eingang", "🎧 Audio Input")
+            )
+        if self.btn_cfg:
+            if isinstance(self.inp, LowerThirdInput):
+                self.btn_cfg.setToolTip(tr("Bauchbinden-Text bearbeiten", "Edit Lower Third text & template"))
+            elif isinstance(self.inp, WebBrowserInput):
+                self.btn_cfg.setToolTip(tr("Browserfenster öffnen/bedienen", "Open / interact with browser window"))
+        if self.btn_flip:
+            self.btn_flip.setToolTip(tr("Kamera horizontal spiegeln (Flip)", "Flip camera horizontally (Mirror)"))
+        if self.btn_play_pause:
+            self.btn_play_pause.setToolTip(tr("Start / Pause", "Play / Pause"))
+        if self.btn_stop_media:
+            self.btn_stop_media.setToolTip(tr("Stopp (Zurück zum Anfang 0:00)", "Stop (Rewind to 0:00)"))
+        if self.btn_loop:
+            self.btn_loop.setToolTip(tr("Endlosschleife (Loop) ein-/ausschalten", "Toggle infinite Loop on/off"))
+        if self.btn_return_prv:
+            self.btn_return_prv.setToolTip(
+                tr(
+                    "Nach Ende zurück zum Vorschaufenster springen (schaltet bei Live-Ende automatisch zurück)",
+                    "Return to Preview on end (automatically cuts back when clip finishes on Program)",
+                )
+            )
+        if self.seek_slider:
+            self.seek_slider.setToolTip(tr("Im Video/Replay spulen (Scrubbing)", "Scrub / seek in video or replay"))
+        for rval, b_spd in self.speed_buttons:
+            b_spd.setToolTip(tr(f"Abspieltempo auf {rval:g}× setzen", f"Set playback speed to {rval:g}×"))
+        if self.btn_prev_hl:
+            self.btn_prev_hl.setToolTip(tr("Vorheriges Highlight", "Previous Highlight"))
+        if self.btn_next_hl:
+            self.btn_next_hl.setToolTip(tr("Nächstes Highlight", "Next Highlight"))
+        if self.btn_hl_select:
+            self.btn_hl_select.setToolTip(
+                tr("Vergangenes Highlight auswählen oder Auto-Play umschalten", "Select recorded Highlight or toggle Auto-Play")
+            )
+        if self.btn_hl_speed:
+            self.btn_hl_speed.setToolTip(tr("Zeitlupen-Geschwindigkeit für Highlights wählen", "Choose slow-motion speed for Highlights"))
+        if self.btn_mute_tile:
+            self.btn_mute_tile.setToolTip(tr("Ton dieser Quelle stummschalten (Mute)", "Mute audio of this source"))
+        if self.vol_slider:
+            self.vol_slider.setToolTip(tr("Lautstärke dieser Quelle (0% - 150%)", "Volume of this source (0% - 150%)"))
 
     @staticmethod
     def _fmt_mm_ss(sec: float) -> str:
@@ -1269,7 +1326,7 @@ class InputTileWidget(QFrame):
         if not isinstance(self.inp, HighlightsInput):
             return
         menu = QMenu(self)
-        for rval, rlabel in ReplaySourceInput.SPEED_OPTIONS:
+        for rval, rlabel in ReplaySourceInput.get_speed_options():
             prefix = "✓ " if abs(self.inp.playback_rate - rval) < 0.02 else "   "
             menu.addAction(
                 f"{prefix}{rlabel}",
@@ -1283,12 +1340,17 @@ class InputTileWidget(QFrame):
         menu = QMenu(self)
         p_auto = "✓ " if self.inp.auto_advance else "   "
         menu.addAction(
-            f"{p_auto}🔄 Alle Highlights nacheinander abspielen (Playlist)",
+            tr(
+                f"{p_auto}🔄 Alle Highlights nacheinander abspielen (Playlist)",
+                f"{p_auto}🔄 Play all Highlights sequentially (Playlist)",
+            ),
             lambda: (setattr(self.inp, "auto_advance", not self.inp.auto_advance), self.main_win._save_last_preset_silent()),
         )
         menu.addSeparator()
         if not self.inp.clips:
-            act_empty = menu.addAction("(Noch keine Highlights aufgezeichnet)")
+            act_empty = menu.addAction(
+                tr("(Noch keine Highlights aufgezeichnet)", "(No Highlights recorded yet)")
+            )
             act_empty.setEnabled(False)
         else:
             for i, cpath in enumerate(self.inp.clips):
@@ -1381,7 +1443,7 @@ class InputTileWidget(QFrame):
 
 
 class LiteMixMainWindow(QMainWindow):
-    """Kompaktes Hauptfenster im vMix-Layout für Notebooks."""
+    """Compact main window in vMix layout optimized for notebooks."""
 
     APP_VERSION = "0.1.0"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
@@ -1389,7 +1451,7 @@ class LiteMixMainWindow(QMainWindow):
     GRID_COLS = 5
 
     SHORTCUT_DEFINITIONS = [
-        # (action_id, category, label, default_key_str)
+        # (action_id, category_de, label_de, default_key_str)
         ("cut", "🎬 Regie & Übergänge", "CUT – Harter Schnitt (Preview ↔ Program)", "Space"),
         ("fade", "🎬 Regie & Übergänge", "FADE – Weiche Überblendung", "Return"),
         ("ftb", "🎬 Regie & Übergänge", "FTB – Schwarzblende (Fade to Black)", "B"),
@@ -1417,7 +1479,44 @@ class LiteMixMainWindow(QMainWindow):
         ("save_set", "💾 Set & Einstellungen", "Quellen-Set speichern unter...", "Ctrl+S"),
         ("load_set", "💾 Set & Einstellungen", "Quellen-Set laden...", "Ctrl+O"),
         ("open_shortcuts", "💾 Set & Einstellungen", "Tastenkürzel-Einstellungen öffnen", "Ctrl+K"),
+        ("open_help", "💾 Set & Einstellungen", "Hilfe & Funktionsübersicht öffnen", "F12"),
     ]
+
+    SHORTCUT_TRANSLATIONS_EN = {
+        "🎬 Regie & Übergänge": "🎬 Directing & Transitions",
+        "⏪ Replay, Aufnahme & Audio": "⏪ Replay, Recording & Audio",
+        "🔢 Quellen-Schnellwahl (Preview)": "🔢 Quick Source Select (Preview)",
+        "🔴 Quellen-Schnellwahl (Program)": "🔴 Quick Source Select (Program)",
+        "💾 Set & Einstellungen": "💾 Set & Settings",
+        "cut": "CUT – Hard Cut (Preview ↔ Program)",
+        "fade": "FADE – Smooth Crossfade",
+        "ftb": "FTB – Fade to Black",
+        "prv_play_pause": "Preview Media (Video/Audio/Replay) Play / Pause",
+        "prv_stop": "Stop Preview Media & Rewind (00:00)",
+        "ovl1_prv": "OV1 – Toggle Current Preview Source as Overlay 1",
+        "ovl2_prv": "OV2 – Toggle Current Preview Source as Overlay 2",
+        "replay_toggle": "Start / Stop Replay Recording",
+        "rec_toggle": "Start / Stop Local Recording (REC)",
+        "stream_toggle": "Start / Stop Live Stream (STREAM)",
+        "mic_mute": "Mute / Unmute Microphone (MIC M)",
+        "clip_mute": "Mute / Unmute Video Audio (VID M)",
+        "prv_1": "Load Source 1 into PREVIEW",
+        "prv_2": "Load Source 2 into PREVIEW",
+        "prv_3": "Load Source 3 into PREVIEW",
+        "prv_4": "Load Source 4 into PREVIEW",
+        "prv_5": "Load Source 5 into PREVIEW",
+        "prv_6": "Load Source 6 into PREVIEW",
+        "pgm_1": "Cut Source 1 directly to PROGRAM",
+        "pgm_2": "Cut Source 2 directly to PROGRAM",
+        "pgm_3": "Cut Source 3 directly to PROGRAM",
+        "pgm_4": "Cut Source 4 directly to PROGRAM",
+        "pgm_5": "Cut Source 5 directly to PROGRAM",
+        "pgm_6": "Cut Source 6 directly to PROGRAM",
+        "save_set": "Save Source Set As...",
+        "load_set": "Load Source Set...",
+        "open_shortcuts": "Open Hotkey Settings",
+        "open_help": "Open Help & Function Guide",
+    }
 
     def __init__(self):
         super().__init__()
@@ -1439,8 +1538,8 @@ class LiteMixMainWindow(QMainWindow):
 
         self.prv_idx = 1
         self.pgm_idx = 0
-        self.ovl1_idx = -1  # Overlay 1 (Standard: PiP unten rechts, frei verschieb- & skalierbar)
-        self.ovl2_idx = -1  # Overlay 2 (Standard: 1280x720, frei verschieb- & skalierbar)
+        self.ovl1_idx = -1  # Overlay 1 (Default: PiP bottom-right, freely draggable & resizable)
+        self.ovl2_idx = -1  # Overlay 2 (Default: 1280x720, freely draggable & resizable)
         self.ovl1_rect = [float(self.mix_w - 396), float(self.mix_h - 238), 360.0, 202.0]
         self.ovl2_rect = [0.0, 0.0, float(self.mix_w), float(self.mix_h)]
         self.ovl1_show_border = True
@@ -1453,7 +1552,7 @@ class LiteMixMainWindow(QMainWindow):
         self.fade_start_time = 0.0
         self.ftb_active = False
 
-        # Manuelle Replay-Aufnahme (VA-API GPU -> SSD) + Standard-Zeitlupentempo
+        # Manual replay recording (VA-API GPU -> SSD) + default slow-motion speed
         self.default_replay_rate = 0.5  # 0.25x, 0.5x, 0.75x, 1.0x
         self.replay_recorder = VAAPIReplayRecorder(self.mix_w, self.mix_h, self.fps)
 
@@ -1478,11 +1577,12 @@ class LiteMixMainWindow(QMainWindow):
             self._init_default_inputs()
         self._setup_shortcuts()
 
-        # Integrierter HTTP-Web-Controller für iPad / Tablet / Browser (mit Token & QR-Code)
+        # Built-in HTTP Web Controller for iPad / Tablet / Browser (with Token & QR Code)
         self.web_remote = WebRemoteController(self)
         self._refresh_remote_button_style()
+        self.apply_language()
 
-        # 30 FPS Master Render Loop (PreciseTimer für ruckelfreies Timing)
+        # 30 FPS Master Render Loop (PreciseTimer for jitter-free frame pacing)
         self.render_timer = QTimer(self)
         self.render_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.render_timer.timeout.connect(self._on_render_tick)
@@ -1516,18 +1616,15 @@ class LiteMixMainWindow(QMainWindow):
 
         self.btn_cut = QPushButton("CUT")
         self.btn_cut.setObjectName("CutBtn")
-        self.btn_cut.setToolTip("Harter Schnitt (Leertaste)")
         self.btn_cut.clicked.connect(self.do_cut)
         trans_layout.addWidget(self.btn_cut)
 
         self.btn_fade = QPushButton("FADE")
         self.btn_fade.setObjectName("FadeBtn")
-        self.btn_fade.setToolTip("Weiche Überblendung (Enter)")
         self.btn_fade.clicked.connect(self.do_fade)
         trans_layout.addWidget(self.btn_fade)
 
         self.btn_ftb = QPushButton("FTB")
-        self.btn_ftb.setToolTip("Fade to Black (Schwarzblende)")
         self.btn_ftb.clicked.connect(self.toggle_ftb)
         trans_layout.addWidget(self.btn_ftb)
 
@@ -1536,7 +1633,6 @@ class LiteMixMainWindow(QMainWindow):
         self.fade_spin.setSingleStep(100)
         self.fade_spin.setSuffix(" ms")
         self.fade_spin.setValue(600)
-        self.fade_spin.setToolTip("Überblenddauer in Millisekunden")
         self.fade_spin.valueChanged.connect(lambda v: setattr(self, "fade_duration_ms", v))
         trans_layout.addWidget(self.fade_spin)
 
@@ -1552,17 +1648,15 @@ class LiteMixMainWindow(QMainWindow):
         tbar_row.addStretch()
         trans_layout.addLayout(tbar_row, 1)
 
-        # Manuelle Replay-Aufnahme (Start / Stop -> Letztes Replay & Highlights)
+        # Manual replay recording (Start / Stop -> Latest Replay & Highlights)
         replay_row = QHBoxLayout()
         replay_row.setSpacing(2)
         self.btn_replay = QPushButton("⏺ REPLAY")
-        self.btn_replay.setToolTip("Manuelle Replay-Aufnahme starten/stoppen (Strg+R)")
         self.btn_replay.setStyleSheet("padding: 4px 2px; font-size: 9px;")
         self.btn_replay.clicked.connect(self.toggle_manual_replay)
 
         self.btn_replay_cfg = QPushButton("▾")
         self.btn_replay_cfg.setFixedWidth(18)
-        self.btn_replay_cfg.setToolTip("Replay-Einstellungen & Quellen (Letztes Replay / Highlights)")
         self.btn_replay_cfg.setStyleSheet("padding: 4px 1px; font-size: 9px;")
         self.btn_replay_cfg.clicked.connect(self._open_replay_menu)
         replay_row.addWidget(self.btn_replay, 1)
@@ -1598,10 +1692,10 @@ class LiteMixMainWindow(QMainWindow):
         audio_vbox.setContentsMargins(6, 5, 6, 5)
         audio_vbox.setSpacing(4)
 
-        lbl_aud = QLabel("<b>AUDIO-MIXER</b>")
-        lbl_aud.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_aud.setStyleSheet("font-size: 10px; color: #909ab0;")
-        audio_vbox.addWidget(lbl_aud)
+        self.lbl_aud_header = QLabel("<b>AUDIO-MIXER</b>")
+        self.lbl_aud_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_aud_header.setStyleSheet("font-size: 10px; color: #909ab0;")
+        audio_vbox.addWidget(self.lbl_aud_header)
 
         strips_hbox = QHBoxLayout()
         strips_hbox.setSpacing(8)
@@ -1618,7 +1712,6 @@ class LiteMixMainWindow(QMainWindow):
         self.mic_slider = QSlider(Qt.Orientation.Vertical)
         self.mic_slider.setRange(0, 120)
         self.mic_slider.setValue(85)
-        self.mic_slider.setToolTip("Mikrofon-Pegel (Standard: 85%)")
         self.mic_slider.valueChanged.connect(self._on_mic_volume)
         mic_meter_row.addStretch()
         mic_meter_row.addWidget(self.mic_vu)
@@ -1627,7 +1720,6 @@ class LiteMixMainWindow(QMainWindow):
         mic_strip.addLayout(mic_meter_row, 1)
 
         self.btn_mic_mute = QPushButton("M")
-        self.btn_mic_mute.setToolTip("Mikrofon stummschalten")
         self.btn_mic_mute.setCheckable(True)
         self.btn_mic_mute.toggled.connect(self._on_mic_mute)
         mic_strip.addWidget(self.btn_mic_mute)
@@ -1653,7 +1745,6 @@ class LiteMixMainWindow(QMainWindow):
         clip_strip.addLayout(clip_meter_row, 1)
 
         self.btn_clip_mute = QPushButton("M")
-        self.btn_clip_mute.setToolTip("Video-Audio stummschalten")
         self.btn_clip_mute.setCheckable(True)
         self.btn_clip_mute.toggled.connect(self._on_clip_mute)
         clip_strip.addWidget(self.btn_clip_mute)
@@ -1688,87 +1779,64 @@ class LiteMixMainWindow(QMainWindow):
         footer.setObjectName("PanelFrame")
         foot_layout = QHBoxLayout(footer)
         foot_layout.setContentsMargins(6, 4, 8, 4)
-        foot_layout.setSpacing(8)
+        foot_layout.setSpacing(6)
 
         # Dropdown button for adding sources (icon-only, saves horizontal space)
         self.btn_add_menu = QPushButton("➕")
         self.btn_add_menu.setObjectName("AddInputBtn")
-        self.btn_add_menu.setToolTip("Quelle hinzufügen (Kamera, Video, Audio, Browser, Bauchbinde, Replay ...)")
-        add_menu = QMenu(self)
-        add_menu.addAction("🪟  Browserfenster / Bildschirm (Wayland)", self.add_wayland_portal_input)
-        if HAS_WEBENGINE:
-            add_menu.addAction("🌐  Integrierter Browser (URL)", self.add_web_browser_input)
-        add_menu.addAction("📷  Webcam / Capture Card (V4L2)", self.add_camera_input)
-        add_menu.addAction("🎬  Video-Datei (MP4 / MKV)", self.add_video_input)
-        add_menu.addAction("🖼️  Bild / Logo / Overlay (PNG / JPG)", self.add_image_input)
-        add_menu.addAction("🏷️  Bauchbinde / Titel (Overlay)", self.add_lower_third_input)
-        add_menu.addSeparator()
-        add_menu.addAction("🎙️  Mikrofon / Audio-Eingang", self.add_mic_device_input)
-        add_menu.addAction("🔊  System-Audio / Desktop-Ton (Browser/PC)", self.add_system_audio_input)
-        add_menu.addAction("🎵  Audio-Datei / Musik / Jingle (MP3/WAV)", self.add_audio_file_input)
-        add_menu.addSeparator()
-        add_menu.addAction("⏪  Letztes Replay (Zeitlupe-Quelle)", self.ensure_replay_source_tile)
-        add_menu.addAction("⭐  Highlights-Quelle (Alle Replays)", self.ensure_highlights_tile)
-        add_menu.addSeparator()
-        add_menu.addAction("📺  Studio-Testbild", self.add_test_pattern_input)
-        self.btn_add_menu.setMenu(add_menu)
         foot_layout.addWidget(self.btn_add_menu)
 
         # Dropdown button for saving/loading source sets (Presets)
         self.btn_set_menu = QPushButton("💾")
         self.btn_set_menu.setObjectName("FooterIconBtn")
-        self.btn_set_menu.setToolTip("Quellen-Set speichern oder laden")
-        set_menu = QMenu(self)
-        set_menu.addAction("💾  Set speichern unter...", self.save_preset_dialog)
-        set_menu.addAction("📂  Set laden...", self.load_preset_dialog)
-        set_menu.addAction("🔄  Letztes gespeichertes Set laden", self.load_last_preset)
-        set_menu.addSeparator()
-        set_menu.addAction("⌨️  Tastenkürzel frei belegen...", self.open_shortcuts_dialog)
-        set_menu.addAction("📱  Web-Fernsteuerung (iPad / QR-Code)...", self.open_web_remote_dialog)
-        set_menu.addAction("🔄  Auf Updates prüfen (GitHub)...", self.check_for_updates)
-        set_menu.addSeparator()
-        set_menu.addAction("✨  Standard-Set wiederherstellen", self.reset_to_default_set)
-        self.btn_set_menu.setMenu(set_menu)
         foot_layout.addWidget(self.btn_set_menu)
 
         self.btn_shortcuts = QPushButton("⌨️")
         self.btn_shortcuts.setObjectName("FooterIconBtn")
-        self.btn_shortcuts.setToolTip("Tastenkürzel (Hotkeys) für Buttons & Funktionen frei belegen")
         self.btn_shortcuts.clicked.connect(self.open_shortcuts_dialog)
         foot_layout.addWidget(self.btn_shortcuts)
 
         self.btn_remote = QPushButton("📱")
         self.btn_remote.setObjectName("FooterIconBtn")
-        self.btn_remote.setToolTip("Web-Fernsteuerung für iPad / Tablet / Browser (QR-Code, Link & Zugangs-Token)")
         self.btn_remote.clicked.connect(self.open_web_remote_dialog)
         foot_layout.addWidget(self.btn_remote)
 
         self.btn_update = QPushButton("🔄")
         self.btn_update.setObjectName("FooterIconBtn")
-        self.btn_update.setToolTip(f"Auf GitHub ({self.GITHUB_REPO}) nach Updates suchen & LiteMix HD aktualisieren")
         self.btn_update.clicked.connect(self.check_for_updates)
         foot_layout.addWidget(self.btn_update)
 
-        # Live-Streaming Buttons (Start/Stop + Einstellungen)
+        # Live streaming buttons (Start/Stop + Settings)
         self.btn_stream = QPushButton("📡")
         self.btn_stream.setObjectName("StreamBtn")
-        self.btn_stream.setToolTip("Live-Stream starten/stoppen (RTMP / YouTube / Twitch / SRT / UDP)")
         self.btn_stream.clicked.connect(self.toggle_streaming)
         foot_layout.addWidget(self.btn_stream)
 
         self.btn_stream_cfg = QPushButton("⚙️")
         self.btn_stream_cfg.setObjectName("FooterIconBtn")
-        self.btn_stream_cfg.setToolTip("Stream-Einstellungen (Server-URL & Stream-Schlüssel)")
         self.btn_stream_cfg.clicked.connect(self.open_stream_settings)
         foot_layout.addWidget(self.btn_stream_cfg)
 
         self.btn_rec = QPushButton("🔴")
         self.btn_rec.setObjectName("RecBtn")
-        self.btn_rec.setToolTip("Lokale Aufnahme in ~/Videos starten/stoppen")
         self.btn_rec.clicked.connect(self.toggle_recording)
         foot_layout.addWidget(self.btn_rec)
 
-        self.lbl_rec_status = QLabel("Bereit (GPU: h264_vaapi)")
+        # Language switcher (DE / EN) and Help button (❓)
+        self.btn_lang = QPushButton("🌐 DE" if get_lang() == "de" else "🌐 EN")
+        self.btn_lang.setObjectName("FooterIconBtn")
+        self.btn_lang.setStyleSheet(
+            "font-size: 11px; font-weight: bold; padding: 2px 8px; min-width: 48px; min-height: 28px;"
+        )
+        self.btn_lang.clicked.connect(self.toggle_ui_language)
+        foot_layout.addWidget(self.btn_lang)
+
+        self.btn_help = QPushButton("❓")
+        self.btn_help.setObjectName("FooterIconBtn")
+        self.btn_help.clicked.connect(self.open_help_dialog)
+        foot_layout.addWidget(self.btn_help)
+
+        self.lbl_rec_status = QLabel(tr("Bereit (GPU: h264_vaapi)", "Ready (GPU: h264_vaapi)"))
         self.lbl_rec_status.setStyleSheet("color: #98a2b8; font-size: 10px;")
         foot_layout.addWidget(self.lbl_rec_status)
 
@@ -1779,24 +1847,203 @@ class LiteMixMainWindow(QMainWindow):
         foot_layout.addWidget(self.lbl_stats)
 
         root_layout.addWidget(footer)
+        self._rebuild_menus()
+
+    def _rebuild_menus(self):
+        """Rebuilds the Add-Source and Preset/Settings dropdown menus in the active language."""
+        add_menu = QMenu(self)
+        add_menu.addAction(
+            tr("🪟  Browserfenster / Bildschirm (Wayland)", "🪟  Browser Window / Screen (Wayland)"),
+            self.add_wayland_portal_input,
+        )
+        if HAS_WEBENGINE:
+            add_menu.addAction(
+                tr("🌐  Integrierter Browser (URL)", "🌐  Built-in Web Browser (URL)"),
+                self.add_web_browser_input,
+            )
+        add_menu.addAction(
+            tr("📷  Webcam / Capture Card (V4L2)", "📷  Webcam / Capture Card (V4L2)"),
+            self.add_camera_input,
+        )
+        add_menu.addAction(
+            tr("🎬  Video-Datei (MP4 / MKV)", "🎬  Video File (MP4 / MKV)"),
+            self.add_video_input,
+        )
+        add_menu.addAction(
+            tr("🖼️  Bild / Logo / Overlay (PNG / JPG)", "🖼️  Image / Logo / Overlay (PNG / JPG)"),
+            self.add_image_input,
+        )
+        add_menu.addAction(
+            tr("🏷️  Bauchbinde / Titel (Overlay)", "🏷️  Lower Third / Title (Overlay)"),
+            self.add_lower_third_input,
+        )
+        add_menu.addSeparator()
+        add_menu.addAction(
+            tr("🎙️  Mikrofon / Audio-Eingang", "🎙️  Microphone / Audio Input"),
+            self.add_mic_device_input,
+        )
+        add_menu.addAction(
+            tr("🔊  System-Audio / Desktop-Ton (Browser/PC)", "🔊  System Audio / Desktop Sound (Loopback)"),
+            self.add_system_audio_input,
+        )
+        add_menu.addAction(
+            tr("🎵  Audio-Datei / Musik / Jingle (MP3/WAV)", "🎵  Audio File / Music / Jingle (MP3/WAV)"),
+            self.add_audio_file_input,
+        )
+        add_menu.addSeparator()
+        add_menu.addAction(
+            tr("⏪  Letztes Replay (Zeitlupe-Quelle)", "⏪  Latest Replay (Slow-Motion Source)"),
+            self.ensure_replay_source_tile,
+        )
+        add_menu.addAction(
+            tr("⭐  Highlights-Quelle (Alle Replays)", "⭐  Highlights Source (All Replays)"),
+            self.ensure_highlights_tile,
+        )
+        add_menu.addSeparator()
+        add_menu.addAction(
+            tr("📺  Studio-Testbild", "📺  Studio Test Pattern"),
+            self.add_test_pattern_input,
+        )
+        self.btn_add_menu.setMenu(add_menu)
+
+        set_menu = QMenu(self)
+        set_menu.addAction(tr("💾  Set speichern unter...", "💾  Save Set As..."), self.save_preset_dialog)
+        set_menu.addAction(tr("📂  Set laden...", "📂  Load Set..."), self.load_preset_dialog)
+        set_menu.addAction(tr("🔄  Letztes gespeichertes Set laden", "🔄  Load Last Saved Set"), self.load_last_preset)
+        set_menu.addSeparator()
+        set_menu.addAction(tr("⌨️  Tastenkürzel frei belegen...", "⌨️  Customize Hotkeys..."), self.open_shortcuts_dialog)
+        set_menu.addAction(
+            tr("📱  Web-Fernsteuerung (iPad / QR-Code)...", "📱  Web Remote Control (iPad / QR Code)..."),
+            self.open_web_remote_dialog,
+        )
+        set_menu.addAction(tr("❓  Hilfe & Funktionsübersicht...", "❓  Help & Function Guide..."), self.open_help_dialog)
+        set_menu.addAction(
+            tr("🌐  Sprache wechseln (Deutsch / English)", "🌐  Switch Language (Deutsch / English)"),
+            self.toggle_ui_language,
+        )
+        set_menu.addAction(tr("🔄  Auf Updates prüfen (GitHub)...", "🔄  Check for Updates (GitHub)..."), self.check_for_updates)
+        set_menu.addSeparator()
+        set_menu.addAction(tr("✨  Standard-Set wiederherstellen", "✨  Restore Default Set"), self.reset_to_default_set)
+        self.btn_set_menu.setMenu(set_menu)
+
+    def toggle_ui_language(self):
+        new_lang = toggle_lang()
+        self.apply_language()
+        self.lbl_rec_status.setText(
+            "🌐 Sprache auf Deutsch umgestellt" if new_lang == "de" else "🌐 Language switched to English"
+        )
+
+    def apply_language(self):
+        """Refreshes all UI labels, tooltips, menus, and input tiles to the current language (DE/EN)."""
+        lang = get_lang()
+        if hasattr(self, "btn_lang"):
+            self.btn_lang.setText("🌐 DE" if lang == "de" else "🌐 EN")
+            self.btn_lang.setToolTip(
+                tr(
+                    "Sprache der Oberfläche und Hilfe zwischen Deutsch (DE) und Englisch (EN) wechseln",
+                    "Switch user interface and help language between German (DE) and English (EN)",
+                )
+            )
+        if hasattr(self, "btn_help"):
+            self.btn_help.setToolTip(
+                tr(
+                    "Hilfe & Funktionsübersicht öffnen (Erklärung aller Buttons, Icons & Funktionen)",
+                    "Open Help & Function Guide (Explanation of all buttons, icons & features)",
+                )
+            )
+        if hasattr(self, "btn_add_menu"):
+            self.btn_add_menu.setToolTip(
+                tr(
+                    "Quelle hinzufügen (Kamera, Video, Audio, Browser, Bauchbinde, Replay ...)",
+                    "Add Source (Camera, Video, Audio, Browser, Lower Third, Replay ...)",
+                )
+            )
+        if hasattr(self, "btn_set_menu"):
+            self.btn_set_menu.setToolTip(
+                tr("Quellen-Set speichern oder laden", "Save or load Source Set (Preset)")
+            )
+        if hasattr(self, "btn_update"):
+            self.btn_update.setToolTip(
+                tr(
+                    f"Auf GitHub ({self.GITHUB_REPO}) nach Updates suchen & LiteMix HD aktualisieren",
+                    f"Check GitHub ({self.GITHUB_REPO}) for updates & update LiteMix HD",
+                )
+            )
+        if hasattr(self, "btn_stream_cfg"):
+            self.btn_stream_cfg.setToolTip(
+                tr(
+                    "Stream-Einstellungen (Server-URL, Stream-Schlüssel & FPS)",
+                    "Stream Settings (Server URL, Stream Key & FPS)",
+                )
+            )
+        if hasattr(self, "fade_spin"):
+            self.fade_spin.setToolTip(
+                tr("Überblenddauer in Millisekunden", "Crossfade duration in milliseconds")
+            )
+        if hasattr(self, "btn_replay_cfg"):
+            self.btn_replay_cfg.setToolTip(
+                tr(
+                    "Replay-Einstellungen & Quellen (Letztes Replay / Highlights)",
+                    "Replay Settings & Sources (Latest Replay / Highlights)",
+                )
+            )
+        if hasattr(self, "mic_slider"):
+            self.mic_slider.setToolTip(
+                tr("Mikrofon-Pegel (Standard: 85%)", "Microphone volume (Default: 85%)")
+            )
+        if hasattr(self, "clip_slider"):
+            self.clip_slider.setToolTip(
+                tr("Video-/Quellen-Audiopegel (0% - 150%)", "Video / Sources audio volume (0% - 150%)")
+            )
+        if hasattr(self, "lbl_aud_header"):
+            self.lbl_aud_header.setText(tr("<b>AUDIO-MIXER</b>", "<b>AUDIO MIXER</b>"))
+
+        if hasattr(self, "preview_mon"):
+            self.preview_mon.refresh_language()
+        if hasattr(self, "program_mon"):
+            self.program_mon.refresh_language()
+
+        self._rebuild_menus()
+        self._apply_shortcuts()
+        self._refresh_remote_button_style()
+        for tile in self.input_tiles:
+            tile.refresh_language()
+
+    def open_help_dialog(self):
+        dlg = HelpDialog(self, on_language_changed=self.apply_language)
+        dlg.exec()
 
     def _init_default_inputs(self):
-        # 3 sofort einsatzbereite Demo-Inputs wie in einem vorkonfigurierten vMix-Projekt
-        self.add_input(TestPatternInput("Kamera 1 (Farbbalken)", self.mix_w, self.mix_h, pattern_style=0))
-        self.add_input(TestPatternInput("Kamera 2 (Studio-Grid)", self.mix_w, self.mix_h, pattern_style=1))
+        # 3 ready-to-use demo inputs just like a pre-configured vMix studio project
+        self.add_input(
+            TestPatternInput(
+                tr("Kamera 1 (Farbbalken)", "Camera 1 (Color Bars)"),
+                self.mix_w,
+                self.mix_h,
+                pattern_style=0,
+            )
+        )
+        self.add_input(
+            TestPatternInput(
+                tr("Kamera 2 (Studio-Grid)", "Camera 2 (Studio Grid)"),
+                self.mix_w,
+                self.mix_h,
+                pattern_style=1,
+            )
+        )
         lt = LowerThirdInput(
-            "Bauchbinde (Overlay)",
+            tr("Bauchbinde (Overlay)", "Lower Third (Overlay)"),
             "Uwe • Live Studio",
-            "LiteMix HD auf Intel Core i5-6300U (VA-API)",
+            "LiteMix HD • Intel VA-API Hardware Engine",
             self.mix_w,
-            self.mix_h
+            self.mix_h,
         )
         self.add_input(lt)
         self.pgm_idx = 0
         self.prv_idx = 1
-        self.ovl2_idx = 2  # Bauchbinde standardmäßig aktiv als Demo!
+        self.ovl2_idx = 2  # Lower third enabled by default as demo!
 
-    # ================= TASTENKÜRZEL (HOTKEYS) KONFIGURATION =================
+    # ================= HOTKEY (SHORTCUTS) CONFIGURATION =================
     def _default_shortcuts_map(self) -> dict[str, str]:
         return {aid: default_key for aid, _, _, default_key in self.SHORTCUT_DEFINITIONS}
 
@@ -1840,6 +2087,10 @@ class LiteMixMainWindow(QMainWindow):
                 inp.stop_playback()
                 self.preview_mon.update()
 
+    # Aliases used by web_remote.py
+    toggle_preview_media_play = toggle_preview_playback
+    stop_preview_media = stop_preview_playback
+
     def _get_action_callback(self, action_id: str):
         mapping = {
             "cut": self.do_cut,
@@ -1869,6 +2120,7 @@ class LiteMixMainWindow(QMainWindow):
             "save_set": self.save_preset_dialog,
             "load_set": self.load_preset_dialog,
             "open_shortcuts": self.open_shortcuts_dialog,
+            "open_help": self.open_help_dialog,
         }
         return mapping.get(action_id)
 
@@ -1893,36 +2145,60 @@ class LiteMixMainWindow(QMainWindow):
                 sc.activated.connect(cb)
                 self._active_shortcuts.append(sc)
 
-        # Tooltips der Haupt-Buttons dynamisch mit dem aktuellen Tastenkürzel aktualisieren
+        # Dynamically update main button tooltips with their assigned shortcut key
         def _fmt_tip(base_text: str, aid: str) -> str:
             k = self.shortcuts_map.get(aid, "").strip()
             return f"{base_text} [{k}]" if k else base_text
 
         if hasattr(self, "btn_cut"):
-            self.btn_cut.setToolTip(_fmt_tip("Harter Schnitt", "cut"))
+            self.btn_cut.setToolTip(_fmt_tip(tr("Harter Schnitt", "Hard Cut"), "cut"))
         if hasattr(self, "btn_fade"):
-            self.btn_fade.setToolTip(_fmt_tip("Weiche Überblendung", "fade"))
+            self.btn_fade.setToolTip(_fmt_tip(tr("Weiche Überblendung", "Smooth Crossfade"), "fade"))
         if hasattr(self, "btn_ftb"):
-            self.btn_ftb.setToolTip(_fmt_tip("Fade to Black (Schwarzblende)", "ftb"))
+            self.btn_ftb.setToolTip(_fmt_tip(tr("Fade to Black (Schwarzblende)", "Fade to Black"), "ftb"))
         if hasattr(self, "btn_replay"):
-            self.btn_replay.setToolTip(_fmt_tip("Manuelle Replay-Aufnahme starten/stoppen", "replay_toggle"))
+            self.btn_replay.setToolTip(
+                _fmt_tip(tr("Manuelle Replay-Aufnahme starten/stoppen", "Start/stop manual Replay recording"), "replay_toggle")
+            )
         if hasattr(self, "btn_rec"):
-            self.btn_rec.setToolTip(_fmt_tip("Lokale Aufnahme in ~/Videos starten/stoppen", "rec_toggle"))
+            self.btn_rec.setToolTip(
+                _fmt_tip(tr("Lokale Aufnahme in ~/Videos starten/stoppen", "Start/stop local recording to ~/Videos"), "rec_toggle")
+            )
         if hasattr(self, "btn_stream"):
-            self.btn_stream.setToolTip(_fmt_tip("Live-Stream starten/stoppen", "stream_toggle"))
+            self.btn_stream.setToolTip(
+                _fmt_tip(tr("Live-Stream starten/stoppen", "Start/stop Live Stream"), "stream_toggle")
+            )
         if hasattr(self, "btn_mic_mute"):
-            self.btn_mic_mute.setToolTip(_fmt_tip("Mikrofon stummschalten", "mic_mute"))
+            self.btn_mic_mute.setToolTip(_fmt_tip(tr("Mikrofon stummschalten", "Mute Microphone"), "mic_mute"))
         if hasattr(self, "btn_clip_mute"):
-            self.btn_clip_mute.setToolTip(_fmt_tip("Video-Audio stummschalten", "clip_mute"))
+            self.btn_clip_mute.setToolTip(_fmt_tip(tr("Video-Audio stummschalten", "Mute Video Audio"), "clip_mute"))
         if hasattr(self, "btn_shortcuts"):
             self.btn_shortcuts.setToolTip(
-                _fmt_tip("Tastenkürzel (Hotkeys) für Buttons & Funktionen frei belegen", "open_shortcuts")
+                _fmt_tip(
+                    tr(
+                        "Tastenkürzel (Hotkeys) für Buttons & Funktionen frei belegen",
+                        "Freely assign keyboard shortcuts (Hotkeys) to buttons & functions",
+                    ),
+                    "open_shortcuts",
+                )
+            )
+        if hasattr(self, "btn_help"):
+            self.btn_help.setToolTip(
+                _fmt_tip(
+                    tr(
+                        "Hilfe & Funktionsübersicht öffnen (Erklärung aller Buttons, Icons & Funktionen)",
+                        "Open Help & Function Guide (Explanation of all buttons, icons & features)",
+                    ),
+                    "open_help",
+                )
             )
 
     def open_shortcuts_dialog(self):
         dlg = QDialog(self)
-        dlg.setWindowTitle("⌨️ Tastenkürzel (Hotkeys) frei zuordnen")
-        dlg.resize(560, 520)
+        dlg.setWindowTitle(
+            tr("⌨️ Tastenkürzel (Hotkeys) frei zuordnen", "⌨️ Customize Keyboard Shortcuts (Hotkeys)")
+        )
+        dlg.resize(580, 530)
         dlg.setStyleSheet(DARK_STYLESHEET)
 
         vbox = QVBoxLayout(dlg)
@@ -1930,8 +2206,12 @@ class LiteMixMainWindow(QMainWindow):
         vbox.setSpacing(8)
 
         info_lbl = QLabel(
-            "Klicke in ein Feld und drücke die gewünschte Taste oder Tastenkombination "
-            "(mit <b>✕</b> kannst du eine Belegung löschen):"
+            tr(
+                "Klicke in ein Feld und drücke die gewünschte Taste oder Tastenkombination "
+                "(mit <b>✕</b> kannst du eine Belegung löschen):",
+                "Click a field and press the desired key or key combination "
+                "(use <b>✕</b> to clear a shortcut):",
+            )
         )
         info_lbl.setWordWrap(True)
         info_lbl.setStyleSheet("color: #b0bcd0; font-size: 11px;")
@@ -1949,8 +2229,11 @@ class LiteMixMainWindow(QMainWindow):
         editors: dict[str, QKeySequenceEdit] = {}
         current_cat = None
         row_idx = 0
+        is_en = get_lang() == "en"
 
-        for aid, cat, label, _ in self.SHORTCUT_DEFINITIONS:
+        for aid, cat_de, label_de, _ in self.SHORTCUT_DEFINITIONS:
+            cat = self.SHORTCUT_TRANSLATIONS_EN.get(cat_de, cat_de) if is_en else cat_de
+            label = self.SHORTCUT_TRANSLATIONS_EN.get(aid, label_de) if is_en else label_de
             if cat != current_cat:
                 current_cat = cat
                 cat_lbl = QLabel(f"<b>{cat}</b>")
@@ -1969,10 +2252,10 @@ class LiteMixMainWindow(QMainWindow):
 
             btn_clear = QPushButton("✕")
             btn_clear.setFixedWidth(26)
-            btn_clear.setToolTip("Tastenkürzel löschen (keine Taste)")
+            btn_clear.setToolTip(tr("Tastenkürzel löschen (keine Taste)", "Clear shortcut (no key)"))
             btn_clear.clicked.connect(lambda _, e=ks_edit: e.clear())
 
-            # Wenn eine Taste doppelt vergeben wird, ältere identische Zuweisung automatisch leeren
+            # If a key is assigned twice, automatically clear the older duplicate assignment
             def _on_seq_changed(seq: QKeySequence, cur_aid=aid):
                 s_txt = seq.toString().strip()
                 if not s_txt:
@@ -1994,8 +2277,13 @@ class LiteMixMainWindow(QMainWindow):
         vbox.addWidget(scroll, 1)
 
         btn_row = QHBoxLayout()
-        btn_reset = QPushButton("↺ Standard wiederherstellen")
-        btn_reset.setToolTip("Alle Tastenkürzel auf die Werkseinstellungen zurücksetzen")
+        btn_reset = QPushButton(tr("↺ Standard wiederherstellen", "↺ Restore Defaults"))
+        btn_reset.setToolTip(
+            tr(
+                "Alle Tastenkürzel auf die Werkseinstellungen zurücksetzen",
+                "Reset all keyboard shortcuts to factory defaults",
+            )
+        )
 
         def _reset_defaults():
             defaults = self._default_shortcuts_map()
@@ -2006,8 +2294,8 @@ class LiteMixMainWindow(QMainWindow):
 
         btn_reset.clicked.connect(_reset_defaults)
 
-        btn_cancel = QPushButton("Abbrechen")
-        btn_ok = QPushButton("✓ Speichern & Übernehmen")
+        btn_cancel = QPushButton(tr("Abbrechen", "Cancel"))
+        btn_ok = QPushButton(tr("✓ Speichern & Übernehmen", "✓ Save & Apply"))
         btn_ok.setObjectName("AddInputBtn")
         btn_cancel.clicked.connect(dlg.reject)
         btn_ok.clicked.connect(dlg.accept)
@@ -2024,9 +2312,11 @@ class LiteMixMainWindow(QMainWindow):
             self._apply_shortcuts()
             self._save_shortcuts_config()
             self._save_last_preset_silent()
-            self.lbl_rec_status.setText("⌨️ Tastenkürzel aktualisiert & gespeichert")
+            self.lbl_rec_status.setText(
+                tr("⌨️ Tastenkürzel aktualisiert & gespeichert", "⌨️ Hotkeys updated & saved")
+            )
 
-    # ================= SET (PRESET) SPEICHERN & LADEN =================
+    # ================= SAVE & LOAD SOURCE SETS (PRESETS) =================
     def _last_preset_path(self) -> str:
         cfg_dir = os.path.expanduser("~/.config/litemix")
         os.makedirs(cfg_dir, exist_ok=True)
@@ -2080,21 +2370,34 @@ class LiteMixMainWindow(QMainWindow):
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            # Auch als "Letztes Set" merken
+            # Also remember as "Last Set"
             last_p = self._last_preset_path()
             if os.path.abspath(filepath) != os.path.abspath(last_p):
                 with open(last_p, "w", encoding="utf-8") as f2:
                     json.dump(data, f2, indent=2, ensure_ascii=False)
-            self.lbl_rec_status.setText(f"💾 Set gespeichert: {os.path.basename(filepath)}")
+            self.lbl_rec_status.setText(
+                tr(
+                    f"💾 Set gespeichert: {os.path.basename(filepath)}",
+                    f"💾 Set saved: {os.path.basename(filepath)}",
+                )
+            )
             return True
         except Exception as e:
-            QMessageBox.critical(self, "Fehler beim Speichern", f"Set konnte nicht gespeichert werden:\n{e}")
+            QMessageBox.critical(
+                self,
+                tr("Fehler beim Speichern", "Save Error"),
+                tr(f"Set konnte nicht gespeichert werden:\n{e}", f"Could not save set:\n{e}"),
+            )
             return False
 
     def load_preset_from_file(self, filepath: str, silent: bool = False) -> bool:
         if not os.path.exists(filepath):
             if not silent:
-                QMessageBox.warning(self, "Set nicht gefunden", f"Datei nicht gefunden:\n{filepath}")
+                QMessageBox.warning(
+                    self,
+                    tr("Set nicht gefunden", "Set Not Found"),
+                    tr(f"Datei nicht gefunden:\n{filepath}", f"File not found:\n{filepath}"),
+                )
             return False
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -2108,7 +2411,14 @@ class LiteMixMainWindow(QMainWindow):
 
             if not new_inputs:
                 if not silent:
-                    QMessageBox.warning(self, "Leeres Set", "Keine gültigen Quellen in dieser Set-Datei gefunden.")
+                    QMessageBox.warning(
+                        self,
+                        tr("Leeres Set", "Empty Set"),
+                        tr(
+                            "Keine gültigen Quellen in dieser Set-Datei gefunden.",
+                            "No valid sources found in this set file.",
+                        ),
+                    )
                 return False
 
             self._clear_all_inputs()
@@ -2153,11 +2463,20 @@ class LiteMixMainWindow(QMainWindow):
             if os.path.abspath(filepath) != os.path.abspath(last_p):
                 self._save_last_preset_silent()
 
-            self.lbl_rec_status.setText(f"📂 Set geladen: {os.path.basename(filepath)} ({n} Quellen)")
+            self.lbl_rec_status.setText(
+                tr(
+                    f"📂 Set geladen: {os.path.basename(filepath)} ({n} Quellen)",
+                    f"📂 Set loaded: {os.path.basename(filepath)} ({n} sources)",
+                )
+            )
             return True
         except Exception as e:
             if not silent:
-                QMessageBox.critical(self, "Fehler beim Laden", f"Set konnte nicht geladen werden:\n{e}")
+                QMessageBox.critical(
+                    self,
+                    tr("Fehler beim Laden", "Load Error"),
+                    tr(f"Set konnte nicht geladen werden:\n{e}", f"Could not load set:\n{e}"),
+                )
             return False
 
     def save_preset_dialog(self):
@@ -2166,9 +2485,9 @@ class LiteMixMainWindow(QMainWindow):
             default_dir = os.path.expanduser("~")
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Quellen-Set speichern",
+            tr("Quellen-Set speichern", "Save Source Set"),
             os.path.join(default_dir, "MeinStudio.litemix"),
-            "LiteMix Set (*.litemix);;JSON (*.json)"
+            "LiteMix Set (*.litemix);;JSON (*.json)",
         )
         if path:
             if not path.endswith((".litemix", ".json")):
@@ -2181,9 +2500,9 @@ class LiteMixMainWindow(QMainWindow):
             default_dir = os.path.expanduser("~")
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Quellen-Set laden",
+            tr("Quellen-Set laden", "Load Source Set"),
             default_dir,
-            "LiteMix Set (*.litemix *.json);;Alle Dateien (*)"
+            tr("LiteMix Set (*.litemix *.json);;Alle Dateien (*)", "LiteMix Set (*.litemix *.json);;All Files (*)"),
         )
         if path:
             self.load_preset_from_file(path)
@@ -2194,7 +2513,9 @@ class LiteMixMainWindow(QMainWindow):
     def reset_to_default_set(self):
         self._clear_all_inputs()
         self._init_default_inputs()
-        self.lbl_rec_status.setText("✨ Standard-Set wiederhergestellt")
+        self.lbl_rec_status.setText(
+            tr("✨ Standard-Set wiederhergestellt", "✨ Default Set restored")
+        )
 
     # ================= INPUT MANAGEMENT =================
     def add_input(self, inp: BaseInput):
@@ -2207,7 +2528,11 @@ class LiteMixMainWindow(QMainWindow):
 
     def remove_input(self, index: int):
         if len(self.inputs) <= 1:
-            QMessageBox.information(self, "Hinweis", "Mindestens eine Quelle muss geöffnet bleiben.")
+            QMessageBox.information(
+                self,
+                tr("Hinweis", "Notice"),
+                tr("Mindestens eine Quelle muss geöffnet bleiben.", "At least one source must remain open."),
+            )
             return
         inp = self.inputs.pop(index)
         inp.stop()
@@ -2244,17 +2569,29 @@ class LiteMixMainWindow(QMainWindow):
 
     def add_test_pattern_input(self):
         num = len(self.inputs) + 1
-        self.add_input(TestPatternInput(f"Testbild {num}", self.mix_w, self.mix_h, pattern_style=num % 2))
+        self.add_input(
+            TestPatternInput(
+                tr(f"Testbild {num}", f"Test Pattern {num}"),
+                self.mix_w,
+                self.mix_h,
+                pattern_style=num % 2,
+            )
+        )
 
     def add_wayland_portal_input(self):
-        inp = WaylandPortalInput("Browser / Fenster (PipeWire)", self.mix_w, self.mix_h)
+        inp = WaylandPortalInput(
+            tr("Browser / Fenster (PipeWire)", "Browser / Window (PipeWire)"),
+            self.mix_w,
+            self.mix_h,
+        )
         self.add_input(inp)
 
     def add_web_browser_input(self):
         url, ok = QInputDialog.getText(
-            self, "Integriertes Browserfenster hinzufügen",
-            "Web-Adresse (URL):",
-            text="https://de.wikipedia.org"
+            self,
+            tr("Integriertes Browserfenster hinzufügen", "Add Built-in Browser Window"),
+            tr("Web-Adresse (URL):", "Web Address (URL):"),
+            text=tr("https://de.wikipedia.org", "https://en.wikipedia.org"),
         )
         if ok and url.strip():
             u = url.strip()
@@ -2266,33 +2603,57 @@ class LiteMixMainWindow(QMainWindow):
     def add_camera_input(self):
         devs = sorted(glob.glob("/dev/video*"))
         if not devs:
-            QMessageBox.warning(self, "Keine Kamera", "Keine /dev/video* Geräte gefunden.")
+            QMessageBox.warning(
+                self,
+                tr("Keine Kamera", "No Camera"),
+                tr("Keine /dev/video* Geräte gefunden.", "No /dev/video* devices found."),
+            )
             return
         dev, ok = QInputDialog.getItem(
-            self, "Webcam / Capture Card wählen",
-            "Video4Linux2-Gerät:", devs, 0, False
+            self,
+            tr("Webcam / Capture Card wählen", "Select Webcam / Capture Card"),
+            tr("Video4Linux2-Gerät:", "Video4Linux2 Device:"),
+            devs,
+            0,
+            False,
         )
         if ok and dev:
             self.add_input(V4L2CameraInput(dev, self.mix_w, self.mix_h))
 
     def add_video_input(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Video-Datei auswählen", os.path.expanduser("~"),
-            "Videos (*.mp4 *.mkv *.webm *.avi *.mov);;Alle Dateien (*)"
+            self,
+            tr("Video-Datei auswählen", "Select Video File"),
+            os.path.expanduser("~"),
+            tr(
+                "Videos (*.mp4 *.mkv *.webm *.avi *.mov);;Alle Dateien (*)",
+                "Videos (*.mp4 *.mkv *.webm *.avi *.mov);;All Files (*)",
+            ),
         )
         if path:
             self.add_input(VideoFileInput(path, self.mix_w, self.mix_h))
 
     def add_image_input(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Bild / Overlay auswählen", os.path.expanduser("~"),
-            "Bilder (*.png *.jpg *.jpeg *.svg *.webp);;Alle Dateien (*)"
+            self,
+            tr("Bild / Overlay auswählen", "Select Image / Overlay"),
+            os.path.expanduser("~"),
+            tr(
+                "Bilder (*.png *.jpg *.jpeg *.svg *.webp);;Alle Dateien (*)",
+                "Images (*.png *.jpg *.jpeg *.svg *.webp);;All Files (*)",
+            ),
         )
         if path:
             self.add_input(ImageInput(path, self.mix_w, self.mix_h))
 
     def add_lower_third_input(self):
-        lt = LowerThirdInput("Bauchbinde", "Titel / Name", "Untertitel / Sendung", self.mix_w, self.mix_h)
+        lt = LowerThirdInput(
+            tr("Bauchbinde", "Lower Third"),
+            tr("Titel / Name", "Title / Name"),
+            tr("Untertitel / Sendung", "Subtitle / Show"),
+            self.mix_w,
+            self.mix_h,
+        )
         self.add_input(lt)
         self.edit_lower_third(lt)
 
@@ -2300,8 +2661,12 @@ class LiteMixMainWindow(QMainWindow):
         sources, _ = list_audio_devices()
         labels = [lbl for _, lbl in sources]
         choice, ok = QInputDialog.getItem(
-            self, "Mikrofon / Audio-Eingang wählen",
-            "Verfügbare Audio-Eingänge (PipeWire):", labels, 0, False
+            self,
+            tr("Mikrofon / Audio-Eingang wählen", "Select Microphone / Audio Input"),
+            tr("Verfügbare Audio-Eingänge (PipeWire):", "Available Audio Inputs (PipeWire):"),
+            labels,
+            0,
+            False,
         )
         if ok and choice:
             idx = labels.index(choice)
@@ -2312,8 +2677,12 @@ class LiteMixMainWindow(QMainWindow):
         _, monitors = list_audio_devices()
         labels = [lbl for _, lbl in monitors]
         choice, ok = QInputDialog.getItem(
-            self, "System-Audio / Desktop-Ton wählen",
-            "Verfügbare System-Ausgänge (Loopback):", labels, 0, False
+            self,
+            tr("System-Audio / Desktop-Ton wählen", "Select System Audio / Desktop Sound"),
+            tr("Verfügbare System-Ausgänge (Loopback):", "Available System Outputs (Loopback):"),
+            labels,
+            0,
+            False,
         )
         if ok and choice:
             idx = labels.index(choice)
@@ -2322,15 +2691,22 @@ class LiteMixMainWindow(QMainWindow):
 
     def add_audio_file_input(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Audio-Datei / Musik / Jingle auswählen", os.path.expanduser("~"),
-            "Audio-Dateien (*.mp3 *.wav *.flac *.ogg *.m4a *.aac);;Alle Dateien (*)"
+            self,
+            tr("Audio-Datei / Musik / Jingle auswählen", "Select Audio File / Music / Jingle"),
+            os.path.expanduser("~"),
+            tr(
+                "Audio-Dateien (*.mp3 *.wav *.flac *.ogg *.m4a *.aac);;Alle Dateien (*)",
+                "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a *.aac);;All Files (*)",
+            ),
         )
         if path:
             self.add_input(AudioFileInput(path, self.mix_w, self.mix_h))
 
     def edit_lower_third(self, lt: LowerThirdInput):
         dlg = QDialog(self)
-        dlg.setWindowTitle("Bauchbinde (Lower Third) – Template & Text")
+        dlg.setWindowTitle(
+            tr("Bauchbinde (Lower Third) – Template & Text", "Lower Third – Template & Text")
+        )
         dlg.setMinimumWidth(460)
         form = QFormLayout(dlg)
 
@@ -2339,9 +2715,10 @@ class LiteMixMainWindow(QMainWindow):
         orig_tpl = getattr(lt, "template_id", 0)
 
         combo_tpl = QComboBox()
-        for tpl_id, tpl_label in LowerThirdInput.TEMPLATES:
+        templates = LowerThirdInput.get_templates()
+        for tpl_id, tpl_label in templates:
             combo_tpl.addItem(tpl_label, tpl_id)
-        combo_tpl.setCurrentIndex(orig_tpl if 0 <= orig_tpl < len(LowerThirdInput.TEMPLATES) else 0)
+        combo_tpl.setCurrentIndex(orig_tpl if 0 <= orig_tpl < len(templates) else 0)
 
         e_title = QLineEdit(lt.title)
         e_sub = QLineEdit(lt.subtitle)
@@ -2371,14 +2748,14 @@ class LiteMixMainWindow(QMainWindow):
         e_sub.textChanged.connect(lambda _: _update_live_preview())
         _update_live_preview()
 
-        form.addRow("Design-Template:", combo_tpl)
-        form.addRow("Hauptzeile (Name/Titel):", e_title)
-        form.addRow("Unterzeile (Info):", e_sub)
-        form.addRow("Live-Vorschau:", preview_lbl)
+        form.addRow(tr("Design-Template:", "Design Template:"), combo_tpl)
+        form.addRow(tr("Hauptzeile (Name/Titel):", "Main Line (Name/Title):"), e_title)
+        form.addRow(tr("Unterzeile (Info):", "Subline (Info):"), e_sub)
+        form.addRow(tr("Live-Vorschau:", "Live Preview:"), preview_lbl)
 
         btn_row = QHBoxLayout()
-        btn_cancel = QPushButton("Abbrechen")
-        btn_ok = QPushButton("✓ Übernehmen")
+        btn_cancel = QPushButton(tr("Abbrechen", "Cancel"))
+        btn_ok = QPushButton(tr("✓ Übernehmen", "✓ Apply"))
         btn_ok.setObjectName("AddInputBtn")
         btn_cancel.clicked.connect(dlg.reject)
         btn_ok.clicked.connect(dlg.accept)
@@ -2477,9 +2854,9 @@ class LiteMixMainWindow(QMainWindow):
             "background-color: #d92020; color: white;" if self.ftb_active else ""
         )
 
-    # ================= MANUELLE REPLAY-AUFNAHME & HIGHLIGHTS =================
+    # ================= MANUAL REPLAY RECORDING & HIGHLIGHTS =================
     def ensure_replay_source_tile(self) -> ReplaySourceInput:
-        """Sucht die '⏪ Letztes Replay'-Kachel oder legt sie automatisch im Grid an."""
+        """Finds the '⏪ Latest Replay' tile or creates it automatically in the input grid."""
         for inp in self.inputs:
             if isinstance(inp, ReplaySourceInput):
                 return inp
@@ -2493,7 +2870,7 @@ class LiteMixMainWindow(QMainWindow):
         return rep_inp
 
     def ensure_highlights_tile(self) -> HighlightsInput:
-        """Sucht die '⭐ Highlights'-Kachel oder legt sie automatisch im Grid an."""
+        """Finds the '⭐ Highlights' tile or creates it automatically in the input grid."""
         for inp in self.inputs:
             if isinstance(inp, HighlightsInput):
                 return inp
@@ -2520,20 +2897,26 @@ class LiteMixMainWindow(QMainWindow):
 
         if self.replay_recorder.recording:
             menu.addAction(
-                f"■ Replay-Aufnahme jetzt stoppen ({self.replay_recorder.elapsed_short_str()})",
+                tr(
+                    f"■ Replay-Aufnahme jetzt stoppen ({self.replay_recorder.elapsed_short_str()})",
+                    f"■ Stop Replay Recording Now ({self.replay_recorder.elapsed_short_str()})",
+                ),
                 self.toggle_manual_replay,
             )
         else:
-            menu.addAction("⏺ Manuelle Replay-Aufnahme starten (Strg+R)", self.toggle_manual_replay)
+            menu.addAction(
+                tr(
+                    "⏺ Manuelle Replay-Aufnahme starten (Strg+R)",
+                    "⏺ Start Manual Replay Recording (Ctrl+R)",
+                ),
+                self.toggle_manual_replay,
+            )
 
         menu.addSeparator()
-        spd_menu = menu.addMenu("⏱️ Standard-Zeitlupen-Tempo")
-        for spd, label in [
-            (0.25, "0.25× (Super-Zeitlupe 25%)"),
-            (0.50, "0.50× (Halbes Tempo 50% – Standard)"),
-            (0.75, "0.75× (Leichte Zeitlupe 75%)"),
-            (1.00, "1.00× (Originaltempo 100%)"),
-        ]:
+        spd_menu = menu.addMenu(
+            tr("⏱️ Standard-Zeitlupen-Tempo", "⏱️ Default Slow-Motion Speed")
+        )
+        for spd, label in ReplaySourceInput.get_speed_options():
             prefix = "✓ " if abs(self.default_replay_rate - spd) < 0.02 else "   "
             spd_menu.addAction(
                 f"{prefix}{label}",
@@ -2541,13 +2924,25 @@ class LiteMixMainWindow(QMainWindow):
             )
 
         menu.addSeparator()
-        menu.addAction("⏪ 'Letztes Replay'-Quelle einblenden / öffnen", self.ensure_replay_source_tile)
-        menu.addAction("⭐ 'Highlights'-Quelle einblenden / öffnen", self.ensure_highlights_tile)
+        menu.addAction(
+            tr(
+                "⏪ 'Letztes Replay'-Quelle einblenden / öffnen",
+                "⏪ Show / Open 'Latest Replay' Source",
+            ),
+            self.ensure_replay_source_tile,
+        )
+        menu.addAction(
+            tr(
+                "⭐ 'Highlights'-Quelle einblenden / öffnen",
+                "⭐ Show / Open 'Highlights' Source",
+            ),
+            self.ensure_highlights_tile,
+        )
 
         menu.exec(self.btn_replay_cfg.mapToGlobal(self.btn_replay_cfg.rect().bottomLeft()))
 
     def toggle_manual_replay(self):
-        """Startet oder stoppt die manuelle Replay-Aufnahme (GPU VA-API -> SSD)."""
+        """Starts or stops manual replay recording (GPU VA-API -> SSD)."""
         if not self.replay_recorder.recording:
             ok = self.replay_recorder.start()
             if ok:
@@ -2557,10 +2952,18 @@ class LiteMixMainWindow(QMainWindow):
                     "background-color: #d9381e; color: white; border: 1px solid #ff9070;"
                 )
                 self.lbl_rec_status.setText(
-                    "⏺ Replay-Aufnahme läuft... (Erneut auf ■ klicken oder Strg+R zum Stoppen)"
+                    tr(
+                        "⏺ Replay-Aufnahme läuft... (Erneut auf ■ klicken oder Strg+R zum Stoppen)",
+                        "⏺ Replay recording active... (Click ■ again or press Ctrl+R to stop)",
+                    )
                 )
             else:
-                self.lbl_rec_status.setText("⚠️ Replay-Aufnahme konnte nicht gestartet werden")
+                self.lbl_rec_status.setText(
+                    tr(
+                        "⚠️ Replay-Aufnahme konnte nicht gestartet werden",
+                        "⚠️ Could not start Replay recording",
+                    )
+                )
         else:
             clip_path = self.replay_recorder.stop()
             self.btn_replay.setText("⏺ REPLAY")
@@ -2578,10 +2981,21 @@ class LiteMixMainWindow(QMainWindow):
                 self._save_last_preset_silent()
                 total_hl = len(hl_inp.clips)
                 self.lbl_rec_status.setText(
-                    f"⏪ Replay bereit in PREVIEW & 'Highlights' (#{total_hl}: {os.path.basename(clip_path)})"
+                    tr(
+                        f"⏪ Replay bereit in PREVIEW & 'Highlights' (#{total_hl}: {os.path.basename(clip_path)})",
+                        f"⏪ Replay ready in PREVIEW & 'Highlights' (#{total_hl}: {os.path.basename(clip_path)})",
+                    )
                 )
             else:
-                self.lbl_rec_status.setText("⚠️ Replay zu kurz oder keine Bilder aufgezeichnet")
+                self.lbl_rec_status.setText(
+                    tr(
+                        "⚠️ Replay zu kurz oder keine Bilder aufgezeichnet",
+                        "⚠️ Replay too short or no frames recorded",
+                    )
+                )
+
+    # Alias used by web_remote.py
+    toggle_replay_recording = toggle_manual_replay
 
     # ================= AUDIO CONTROLS =================
     def _on_mic_volume(self, val: int):
@@ -2633,9 +3047,14 @@ class LiteMixMainWindow(QMainWindow):
             self.btn_rec.setText("🔴")
             self.btn_rec.setObjectName("RecBtn")
             self.btn_rec.setStyle(self.btn_rec.style())
-            self.lbl_rec_status.setText(f"Gespeichert: {self.recorder.output_path}")
+            self.lbl_rec_status.setText(
+                tr(
+                    f"Gespeichert: {self.recorder.output_path}",
+                    f"Saved: {self.recorder.output_path}",
+                )
+            )
 
-    # ================= LIVE-STREAMING =================
+    # ================= LIVE STREAMING =================
     def _stream_config_path(self) -> str:
         cfg_dir = os.path.expanduser("~/.config/litemix")
         os.makedirs(cfg_dir, exist_ok=True)
@@ -2682,7 +3101,12 @@ class LiteMixMainWindow(QMainWindow):
 
     def open_stream_settings(self):
         dlg = QDialog(self)
-        dlg.setWindowTitle("Stream & Video Einstellungen (RTMP / SRT / FPS)")
+        dlg.setWindowTitle(
+            tr(
+                "Stream & Video Einstellungen (RTMP / SRT / FPS)",
+                "Stream & Video Settings (RTMP / SRT / FPS)",
+            )
+        )
         dlg.setMinimumWidth(440)
         form = QFormLayout(dlg)
 
@@ -2697,11 +3121,18 @@ class LiteMixMainWindow(QMainWindow):
         key_row = QHBoxLayout()
         edit_key = QLineEdit(self.streamer.stream_key)
         edit_key.setEchoMode(QLineEdit.EchoMode.Password)
-        edit_key.setPlaceholderText("z.B. xxxx-xxxx-xxxx-xxxx (bei YouTube/Twitch)")
+        edit_key.setPlaceholderText(
+            tr(
+                "z.B. xxxx-xxxx-xxxx-xxxx (bei YouTube/Twitch)",
+                "e.g. xxxx-xxxx-xxxx-xxxx (for YouTube/Twitch)",
+            )
+        )
         btn_show = QPushButton("👁")
         btn_show.setFixedWidth(28)
         btn_show.setCheckable(True)
-        btn_show.setToolTip("Stream-Schlüssel anzeigen/verbergen")
+        btn_show.setToolTip(
+            tr("Stream-Schlüssel anzeigen/verbergen", "Show/hide stream key")
+        )
         btn_show.toggled.connect(
             lambda checked: edit_key.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
@@ -2712,12 +3143,12 @@ class LiteMixMainWindow(QMainWindow):
 
         combo_fps = QComboBox()
         fps_options = [
-            (15, "15 FPS (Extrem CPU-sparend)"),
-            (24, "24 FPS (Kino / Film)"),
-            (25, "25 FPS (PAL Broadcast)"),
-            (30, "30 FPS (Standard HD – Empfohlen)"),
-            (50, "50 FPS (PAL Flüssig)"),
-            (60, "60 FPS (High Frame Rate)"),
+            (15, tr("15 FPS (Extrem CPU-sparend)", "15 FPS (Ultra Low CPU)")),
+            (24, tr("24 FPS (Kino / Film)", "24 FPS (Cinema / Film)")),
+            (25, tr("25 FPS (PAL Broadcast)", "25 FPS (PAL Broadcast)")),
+            (30, tr("30 FPS (Standard HD – Empfohlen)", "30 FPS (Standard HD – Recommended)")),
+            (50, tr("50 FPS (PAL Flüssig)", "50 FPS (PAL Smooth)")),
+            (60, tr("60 FPS (High Frame Rate)", "60 FPS (High Frame Rate)")),
         ]
         selected_fps_idx = 3
         for i, (val, label) in enumerate(fps_options):
@@ -2729,7 +3160,12 @@ class LiteMixMainWindow(QMainWindow):
         spin_qp = QSpinBox()
         spin_qp.setRange(16, 32)
         spin_qp.setValue(self.streamer.qp)
-        spin_qp.setToolTip("VA-API Qualitätsstufe QP (kleiner = höhere Qualität/Bitrate, Standard: 23)")
+        spin_qp.setToolTip(
+            tr(
+                "VA-API Qualitätsstufe QP (kleiner = höhere Qualität/Bitrate, Standard: 23)",
+                "VA-API quality parameter QP (lower = higher quality/bitrate, default: 23)",
+            )
+        )
 
         def on_platform_changed(text):
             if text in VAAPIStreamer.PRESET_SERVERS:
@@ -2737,13 +3173,13 @@ class LiteMixMainWindow(QMainWindow):
 
         combo_plat.currentTextChanged.connect(on_platform_changed)
 
-        form.addRow("Plattform / Ziel:", combo_plat)
-        form.addRow("Server-URL:", edit_url)
-        form.addRow("Stream-Schlüssel:", key_row)
-        form.addRow("Bildrate (FPS):", combo_fps)
-        form.addRow("VA-API Qualität (QP):", spin_qp)
+        form.addRow(tr("Plattform / Ziel:", "Platform / Target:"), combo_plat)
+        form.addRow(tr("Server-URL:", "Server URL:"), edit_url)
+        form.addRow(tr("Stream-Schlüssel:", "Stream Key:"), key_row)
+        form.addRow(tr("Bildrate (FPS):", "Frame Rate (FPS):"), combo_fps)
+        form.addRow(tr("VA-API Qualität (QP):", "VA-API Quality (QP):"), spin_qp)
 
-        btn_save = QPushButton("Einstellungen speichern")
+        btn_save = QPushButton(tr("Einstellungen speichern", "Save Settings"))
         btn_save.setObjectName("AddInputBtn")
         btn_save.clicked.connect(dlg.accept)
         form.addRow(btn_save)
@@ -2756,7 +3192,12 @@ class LiteMixMainWindow(QMainWindow):
             chosen_fps = int(combo_fps.currentData())
             self.set_fps(chosen_fps)
             self._save_stream_config()
-            self.lbl_rec_status.setText(f"📡 Bereit: {self.streamer.platform} ({self.fps} FPS)")
+            self.lbl_rec_status.setText(
+                tr(
+                    f"📡 Bereit: {self.streamer.platform} ({self.fps} FPS)",
+                    f"📡 Ready: {self.streamer.platform} ({self.fps} FPS)",
+                )
+            )
 
     def toggle_streaming(self):
         if not self.streamer.streaming:
@@ -2768,7 +3209,11 @@ class LiteMixMainWindow(QMainWindow):
                 inputs=self.inputs,
             )
             if not ok:
-                QMessageBox.information(self, "Stream-Konfiguration", msg)
+                QMessageBox.information(
+                    self,
+                    tr("Stream-Konfiguration", "Stream Configuration"),
+                    msg,
+                )
                 self.open_stream_settings()
                 return
             self.btn_stream.setText("⏹📡")
@@ -2779,16 +3224,16 @@ class LiteMixMainWindow(QMainWindow):
             self.btn_stream.setText("📡")
             self.btn_stream.setObjectName("StreamBtn")
             self.btn_stream.setStyle(self.btn_stream.style())
-            self.lbl_rec_status.setText("Stream beendet.")
+            self.lbl_rec_status.setText(tr("Stream beendet.", "Stream stopped."))
 
     # ================= MASTER RENDER LOOP (30 FPS) =================
     def _handle_input_eos_return(self, idx: int):
-        """Springt nach Beendigung eines Videos/Audios/Replays automatisch zum Vorschaufenster zurück."""
+        """Automatically jumps back to the Preview monitor when a video/audio/replay clip ends."""
         if not (0 <= idx < len(self.inputs)):
             return
         if idx == self.pgm_idx:
-            # Quelle lief live in PROGRAM -> zurück zur vorherigen Quelle aus PREVIEW schalten,
-            # während diese beendete Quelle selbst wieder im PREVIEW-Fenster landet.
+            # Source was live on PROGRAM -> cut back to previous source from PREVIEW,
+            # while placing the finished source back into the PREVIEW monitor.
             self.do_cut()
         elif idx == self.ovl1_idx:
             self.ovl1_idx = -1
@@ -2848,7 +3293,7 @@ class LiteMixMainWindow(QMainWindow):
             p.drawImage(0, 0, prv_frame)
             p.setOpacity(1.0)
 
-        # Overlay 1: Frei positionier- & skalierbares Overlay (Standard: PiP unten rechts)
+        # Overlay 1: Freely positionable & resizable overlay (Default: PiP bottom-right)
         if 0 <= self.ovl1_idx < len(self.inputs):
             ovl1_img = self.inputs[self.ovl1_idx].get_frame()
             if not ovl1_img.isNull():
@@ -2859,7 +3304,7 @@ class LiteMixMainWindow(QMainWindow):
                     p.setPen(QPen(QColor(0, 200, 255), 3))
                     p.drawRect(int(round(ox)), int(round(oy)), int(round(ow)), int(round(oh)))
 
-        # Overlay 2: Frei positionier- & skalierbares Overlay (Standard: 1280x720 Vollbild/Grafik)
+        # Overlay 2: Freely positionable & resizable overlay (Default: 1280x720 Fullscreen/Graphic)
         if 0 <= self.ovl2_idx < len(self.inputs):
             ovl2_img = self.inputs[self.ovl2_idx].get_frame()
             if not ovl2_img.isNull():
@@ -2906,7 +3351,7 @@ class LiteMixMainWindow(QMainWindow):
                 self.btn_stream.setText("📡")
                 self.btn_stream.setObjectName("StreamBtn")
                 self.btn_stream.setStyle(self.btn_stream.style())
-                status_parts.append("⚠️ Stream-Verbindung getrennt")
+                status_parts.append(tr("⚠️ Stream-Verbindung getrennt", "⚠️ Stream connection lost"))
 
         if self.recorder.recording:
             self.recorder.push_frame(pgm_canvas)
@@ -2925,7 +3370,7 @@ class LiteMixMainWindow(QMainWindow):
                     is_ovl2=(idx == self.ovl2_idx),
                 )
 
-        # 8. Audio-Follow-Video (AFV) für Video-Quellen & Update Audio VU Meters
+        # 8. Audio-Follow-Video (AFV) for video sources & Update Audio VU Meters
         for idx, inp in enumerate(self.inputs):
             if isinstance(inp, VideoFileInput):
                 if self.ftb_active and idx != self.prv_idx:
@@ -2939,7 +3384,7 @@ class LiteMixMainWindow(QMainWindow):
                 elif idx in (self.ovl1_idx, self.ovl2_idx):
                     inp.set_afv_gain(1.0)
                 else:
-                    # Video ist nur im Grid oder pausiert in Preview -> Ton stumm & kein Pegel!
+                    # Video is only in the grid or paused in Preview -> muted & zero VU level!
                     inp.set_afv_gain(0.0)
 
         mic_lvl = max(
@@ -2955,7 +3400,7 @@ class LiteMixMainWindow(QMainWindow):
         self.clip_vu.set_level(clip_lvl)
         self.mst_vu.set_level(mst_lvl)
 
-        # 8b. Web-Fernsteuerung (iPad / Browser): Befehle ausführen & Vorschaubilder aktualisieren
+        # 8b. Web Remote Control (iPad / Browser): execute queued commands & refresh preview frames
         if hasattr(self, "web_remote") and self.web_remote:
             self.web_remote.tick_from_main_thread(prv_frame, pgm_canvas, self._frame_count)
 
@@ -2979,12 +3424,12 @@ class LiteMixMainWindow(QMainWindow):
             )
             self.lbl_stats.setText(
                 f"{stream_speed_prefix}"
-                f"Auflösung: {self.mix_w}x{self.mix_h} | "
+                f"{tr('Auflösung', 'Res')}: {self.mix_w}x{self.mix_h} | "
                 f"Live: {self._measured_fps:.1f} FPS | "
-                f"App CPU-Last: {self._cpu_percent:.1f} %"
+                f"{tr('App CPU-Last', 'App CPU')}: {self._cpu_percent:.1f} %"
             )
 
-    # ================= WEB-FERNSTEUERUNG (iPAD / TABLET / BROWSER) =================
+    # ================= WEB REMOTE CONTROL (iPAD / TABLET / BROWSER) =================
     def _refresh_remote_button_style(self):
         if not hasattr(self, "btn_remote") or not self.btn_remote:
             return
@@ -2992,7 +3437,10 @@ class LiteMixMainWindow(QMainWindow):
         if running:
             url = self.web_remote.get_access_url()
             self.btn_remote.setToolTip(
-                f"📱 Web-Fernsteuerung aktiv: {url}\nKlicken für QR-Code & Zugangs-Token"
+                tr(
+                    f"📱 Web-Fernsteuerung aktiv: {url}\nKlicken für QR-Code & Zugangs-Token",
+                    f"📱 Web Remote active: {url}\nClick for QR Code & Access Token",
+                )
             )
             self.btn_remote.setStyleSheet(
                 "font-size: 16px; padding: 2px 10px; min-width: 38px; min-height: 28px; "
@@ -3000,7 +3448,10 @@ class LiteMixMainWindow(QMainWindow):
             )
         else:
             self.btn_remote.setToolTip(
-                "📱 Web-Fernsteuerung (pausiert) – Klicken zum Aktivieren & QR-Code anzeigen"
+                tr(
+                    "📱 Web-Fernsteuerung (pausiert) – Klicken zum Aktivieren & QR-Code anzeigen",
+                    "📱 Web Remote (paused) – Click to enable & show QR Code",
+                )
             )
             self.btn_remote.setStyleSheet("")
 
@@ -3040,7 +3491,7 @@ class LiteMixMainWindow(QMainWindow):
         return tuple(parts[:4])
 
     def _fetch_remote_version_info(self) -> dict:
-        """Fragt version.json (und optional die GitHub Releases API) des Repositories ab."""
+        """Queries version.json from the remote GitHub repository."""
         raw_url = (
             f"https://raw.githubusercontent.com/{self.GITHUB_REPO}/"
             f"{self.GITHUB_BRANCH}/version.json?t={int(time.time())}"
@@ -3053,33 +3504,52 @@ class LiteMixMainWindow(QMainWindow):
             data = json.loads(resp.read().decode("utf-8"))
             if isinstance(data, dict) and data.get("version"):
                 return data
-        raise RuntimeError("Ungültige Versionsdaten vom GitHub-Server empfangen.")
+        raise RuntimeError(
+            tr(
+                "Ungültige Versionsdaten vom GitHub-Server empfangen.",
+                "Invalid version metadata received from GitHub server.",
+            )
+        )
 
     def check_for_updates(self, silent_if_up_to_date: bool = False):
-        """Prüft auf GitHub nach einer neueren Version und bietet ein direktes Update an."""
+        """Checks GitHub for a newer version and offers a direct one-click update."""
         if self.streamer.streaming or self.recorder.recording or self.replay_recorder.recording:
             if not silent_if_up_to_date:
                 QMessageBox.warning(
                     self,
-                    "Update während Live-Betrieb gesperrt",
-                    "Während ein Live-Stream oder eine Aufnahme läuft, kann kein Update durchgeführt werden.\n\n"
-                    "Bitte stoppen Sie zuerst Stream/Aufnahme.",
+                    tr("Update während Live-Betrieb gesperrt", "Update Locked During Live Operation"),
+                    tr(
+                        "Während ein Live-Stream oder eine Aufnahme läuft, kann kein Update durchgeführt werden.\n\n"
+                        "Bitte stoppen Sie zuerst Stream/Aufnahme.",
+                        "Updates cannot be performed while a live stream or recording is active.\n\n"
+                        "Please stop streaming/recording first.",
+                    ),
                 )
             return
 
         self._load_local_version_metadata()
-        self.lbl_rec_status.setText(f"🔄 Prüfe auf GitHub ({self.GITHUB_REPO}) nach Updates...")
+        self.lbl_rec_status.setText(
+            tr(
+                f"🔄 Prüfe auf GitHub ({self.GITHUB_REPO}) nach Updates...",
+                f"🔄 Checking GitHub ({self.GITHUB_REPO}) for updates...",
+            )
+        )
         QApplication.processEvents()
 
         try:
             remote_info = self._fetch_remote_version_info()
         except Exception as e:
-            self.lbl_rec_status.setText("⚠️ Update-Prüfung fehlgeschlagen")
+            self.lbl_rec_status.setText(
+                tr("⚠️ Update-Prüfung fehlgeschlagen", "⚠️ Update check failed")
+            )
             if not silent_if_up_to_date:
                 QMessageBox.warning(
                     self,
-                    "GitHub Update-Prüfung",
-                    f"Das GitHub-Repository ({self.GITHUB_REPO}) konnte nicht abgefragt werden:\n\n{e}",
+                    tr("GitHub Update-Prüfung", "GitHub Update Check"),
+                    tr(
+                        f"Das GitHub-Repository ({self.GITHUB_REPO}) konnte nicht abgefragt werden:\n\n{e}",
+                        f"Could not query GitHub repository ({self.GITHUB_REPO}):\n\n{e}",
+                    ),
                 )
             return
 
@@ -3088,54 +3558,95 @@ class LiteMixMainWindow(QMainWindow):
         is_newer = self._parse_version_tuple(remote_ver) > self._parse_version_tuple(self.APP_VERSION)
 
         if is_newer:
-            self.lbl_rec_status.setText(f"✨ Neues Update verfügbar: v{remote_ver}")
+            self.lbl_rec_status.setText(
+                tr(f"✨ Neues Update verfügbar: v{remote_ver}", f"✨ New update available: v{remote_ver}")
+            )
             msg = QMessageBox(self)
-            msg.setWindowTitle("LiteMix HD – Neues Update verfügbar")
+            msg.setWindowTitle(
+                tr("LiteMix HD – Neues Update verfügbar", "LiteMix HD – New Update Available")
+            )
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setText(
-                f"<b>Eine neue Version von LiteMix HD ist auf GitHub verfügbar!</b><br><br>"
-                f"Installierte Version: <b>v{self.APP_VERSION}</b><br>"
-                f"Neue Version auf GitHub: <b style='color:#20d660;'>v{remote_ver}</b>"
+                tr(
+                    f"<b>Eine neue Version von LiteMix HD ist auf GitHub verfügbar!</b><br><br>"
+                    f"Installierte Version: <b>v{self.APP_VERSION}</b><br>"
+                    f"Neue Version auf GitHub: <b style='color:#20d660;'>v{remote_ver}</b>",
+                    f"<b>A new version of LiteMix HD is available on GitHub!</b><br><br>"
+                    f"Installed version: <b>v{self.APP_VERSION}</b><br>"
+                    f"Latest version on GitHub: <b style='color:#20d660;'>v{remote_ver}</b>",
+                )
             )
             if changelog:
-                msg.setInformativeText(f"Neuerungen:\n{changelog}\n\nJetzt automatisch aktualisieren?")
+                msg.setInformativeText(
+                    tr(
+                        f"Neuerungen:\n{changelog}\n\nJetzt automatisch aktualisieren?",
+                        f"Changelog:\n{changelog}\n\nUpdate automatically now?",
+                    )
+                )
             else:
-                msg.setInformativeText("Möchten Sie LiteMix HD jetzt automatisch aktualisieren?")
-            btn_yes = msg.addButton("🔄 Jetzt aktualisieren", QMessageBox.ButtonRole.AcceptRole)
-            msg.addButton("Später", QMessageBox.ButtonRole.RejectRole)
+                msg.setInformativeText(
+                    tr(
+                        "Möchten Sie LiteMix HD jetzt automatisch aktualisieren?",
+                        "Would you like to update LiteMix HD automatically now?",
+                    )
+                )
+            btn_yes = msg.addButton(
+                tr("🔄 Jetzt aktualisieren", "🔄 Update Now"),
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+            msg.addButton(tr("Später", "Later"), QMessageBox.ButtonRole.RejectRole)
             msg.exec()
             if msg.clickedButton() == btn_yes:
                 self.perform_github_update(remote_info)
         else:
-            self.lbl_rec_status.setText(f"✅ LiteMix HD v{self.APP_VERSION} ist aktuell")
+            self.lbl_rec_status.setText(
+                tr(
+                    f"✅ LiteMix HD v{self.APP_VERSION} ist aktuell",
+                    f"✅ LiteMix HD v{self.APP_VERSION} is up to date",
+                )
+            )
             if not silent_if_up_to_date:
                 msg = QMessageBox(self)
-                msg.setWindowTitle("LiteMix HD – Update-Prüfung")
+                msg.setWindowTitle(
+                    tr("LiteMix HD – Update-Prüfung", "LiteMix HD – Update Check")
+                )
                 msg.setIcon(QMessageBox.Icon.Information)
                 msg.setText(
-                    f"<b>LiteMix HD ist auf dem neuesten Stand (v{self.APP_VERSION}).</b><br><br>"
-                    f"GitHub-Repository: <code>https://github.com/{self.GITHUB_REPO}</code>"
+                    tr(
+                        f"<b>LiteMix HD ist auf dem neuesten Stand (v{self.APP_VERSION}).</b><br><br>"
+                        f"GitHub-Repository: <code>https://github.com/{self.GITHUB_REPO}</code>",
+                        f"<b>LiteMix HD is up to date (v{self.APP_VERSION}).</b><br><br>"
+                        f"GitHub Repository: <code>https://github.com/{self.GITHUB_REPO}</code>",
+                    )
                 )
                 msg.setInformativeText(
-                    "Sie können bei Bedarf trotzdem den neuesten Stand direkt von GitHub erneut synchronisieren."
+                    tr(
+                        "Sie können bei Bedarf trotzdem den neuesten Stand direkt von GitHub erneut synchronisieren.",
+                        "If needed, you can still force-synchronize the latest files directly from GitHub.",
+                    )
                 )
-                btn_sync = msg.addButton("🔄 Trotzdem von GitHub synchronisieren", QMessageBox.ButtonRole.ActionRole)
+                btn_sync = msg.addButton(
+                    tr("🔄 Trotzdem von GitHub synchronisieren", "🔄 Force Sync from GitHub"),
+                    QMessageBox.ButtonRole.ActionRole,
+                )
                 msg.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
                 msg.exec()
                 if msg.clickedButton() == btn_sync:
                     self.perform_github_update(remote_info)
 
     def perform_github_update(self, remote_info: dict | None = None) -> bool:
-        """Lädt den neuesten Stand von GitHub (per git pull oder Tarball-Download) und bietet Neustart an."""
+        """Downloads the latest version from GitHub (via git pull or tarball download) and offers a restart."""
         app_dir = self._app_dir()
         self._save_last_preset_silent()
-        self.lbl_rec_status.setText("⏳ Lade Update von GitHub herunter...")
+        self.lbl_rec_status.setText(
+            tr("⏳ Lade Update von GitHub herunter...", "⏳ Downloading update from GitHub...")
+        )
         QApplication.processEvents()
 
         updated_ok = False
         err_details = []
 
-        # Methode 1: Wenn .git vorhanden ist -> git fetch & git pull
+        # Method 1: If .git exists -> git fetch & git reset --hard
         git_dir = os.path.join(app_dir, ".git")
         if os.path.isdir(git_dir) and shutil.which("git"):
             try:
@@ -3157,7 +3668,7 @@ class LiteMixMainWindow(QMainWindow):
             except Exception as e:
                 err_details.append(f"Git-Update: {e}")
 
-        # Methode 2 (Fallback ohne .git): Offizielles GitHub-Tarball herunterladen & entpacken
+        # Method 2 (Fallback without .git): Download & extract official GitHub tarball
         if not updated_ok:
             tar_url = f"https://codeload.github.com/{self.GITHUB_REPO}/tar.gz/refs/heads/{self.GITHUB_BRANCH}"
             try:
@@ -3174,7 +3685,7 @@ class LiteMixMainWindow(QMainWindow):
                         if os.path.isdir(os.path.join(tmpdir, d))
                     ]
                     if not extracted_roots:
-                        raise RuntimeError("Archiv enthielt kein Projektverzeichnis.")
+                        raise RuntimeError("Archive did not contain a project directory.")
                     src_root = extracted_roots[0]
                     for item in os.listdir(src_root):
                         if item in (".git", "__pycache__"):
@@ -3185,26 +3696,39 @@ class LiteMixMainWindow(QMainWindow):
                             shutil.copy2(s_path, d_path)
                 updated_ok = True
             except Exception as e:
-                err_details.append(f"Archiv-Download: {e}")
+                err_details.append(f"Archive download: {e}")
 
         if not updated_ok:
-            self.lbl_rec_status.setText("❌ Update fehlgeschlagen")
+            self.lbl_rec_status.setText(tr("❌ Update fehlgeschlagen", "❌ Update failed"))
             QMessageBox.critical(
                 self,
-                "Update fehlgeschlagen",
-                "Das Update konnte nicht installiert werden:\n\n" + "\n".join(err_details),
+                tr("Update fehlgeschlagen", "Update Failed"),
+                tr(
+                    "Das Update konnte nicht installiert werden:\n\n",
+                    "The update could not be installed:\n\n",
+                )
+                + "\n".join(err_details),
             )
             return False
 
         self._load_local_version_metadata()
         self.setWindowTitle(f"LiteMix HD v{self.APP_VERSION}")
-        self.lbl_rec_status.setText(f"✅ Aktualisiert auf LiteMix HD v{self.APP_VERSION}")
+        self.lbl_rec_status.setText(
+            tr(
+                f"✅ Aktualisiert auf LiteMix HD v{self.APP_VERSION}",
+                f"✅ Updated to LiteMix HD v{self.APP_VERSION}",
+            )
+        )
 
         ans = QMessageBox.question(
             self,
-            "Update erfolgreich installiert",
-            f"LiteMix HD wurde erfolgreich auf Version v{self.APP_VERSION} aktualisiert!\n\n"
-            f"Soll LiteMix HD jetzt automatisch neu gestartet werden, um alle Änderungen zu aktivieren?",
+            tr("Update erfolgreich installiert", "Update Installed Successfully"),
+            tr(
+                f"LiteMix HD wurde erfolgreich auf Version v{self.APP_VERSION} aktualisiert!\n\n"
+                f"Soll LiteMix HD jetzt automatisch neu gestartet werden, um alle Änderungen zu aktivieren?",
+                f"LiteMix HD was successfully updated to version v{self.APP_VERSION}!\n\n"
+                f"Restart LiteMix HD automatically now to apply all changes?",
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -3213,7 +3737,7 @@ class LiteMixMainWindow(QMainWindow):
         return True
 
     def restart_application(self):
-        """Beendet alle Pipelines sauber und startet LiteMix HD neu."""
+        """Cleanly stops all media pipelines and restarts LiteMix HD."""
         self._save_last_preset_silent()
         self.render_timer.stop()
         if hasattr(self, "web_remote") and self.web_remote:
