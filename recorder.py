@@ -70,9 +70,153 @@ def resolve_audio_capture_devices(inputs: list = None) -> tuple[str | None, str 
     return (sys_device if need_sys_monitor else None), (mic_device if need_mic else None)
 
 
+_DETECTED_HW_BACKEND: str | None = None
+_PROBE_CACHE: dict[str, bool] = {}
+_ENCODER_PREFERENCE: str = "auto"  # "auto", "nvenc", "vaapi", "x264"
+
+
+def _probe_ffmpeg_encoder(enc_type: str) -> bool:
+    """Tests whether the specified hardware encoder ('nvenc' or 'vaapi') is functional on this system."""
+    if enc_type in _PROBE_CACHE:
+        return _PROBE_CACHE[enc_type]
+
+    ok = False
+    try:
+        if enc_type == "nvenc":
+            if os.path.exists("/dev/nvidia0") or os.path.exists("/dev/nvidiactl"):
+                res = subprocess.run(
+                    [
+                        "ffmpeg", "-v", "error",
+                        "-f", "lavfi", "-i", "color=c=black:s=128x128:d=0.04",
+                        "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2.5,
+                )
+                ok = (res.returncode == 0)
+        elif enc_type == "vaapi":
+            if os.path.exists("/dev/dri/renderD128"):
+                res = subprocess.run(
+                    [
+                        "ffmpeg", "-v", "error",
+                        "-vaapi_device", "/dev/dri/renderD128",
+                        "-f", "lavfi", "-i", "color=c=black:s=128x128:d=0.04",
+                        "-frames:v", "1", "-vf", "format=nv12,hwupload",
+                        "-c:v", "h264_vaapi", "-f", "null", "-",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2.5,
+                )
+                ok = (res.returncode == 0)
+    except Exception:
+        ok = False
+
+    _PROBE_CACHE[enc_type] = ok
+    return ok
+
+
+def detect_hardware_encoder(force_refresh: bool = False) -> str:
+    """
+    Auto-detects the best available hardware H.264 encoder in priority order:
+    1. 'nvenc' (NVIDIA GeForce / RTX via h264_nvenc)
+    2. 'vaapi' (Intel HD / Iris Xe / Arc & AMD Radeon via h264_vaapi)
+    3. 'x264'  (CPU fallback via libx264)
+    """
+    global _DETECTED_HW_BACKEND
+    if force_refresh:
+        _PROBE_CACHE.clear()
+        _DETECTED_HW_BACKEND = None
+    if _DETECTED_HW_BACKEND is not None:
+        return _DETECTED_HW_BACKEND
+
+    if _probe_ffmpeg_encoder("nvenc"):
+        _DETECTED_HW_BACKEND = "nvenc"
+    elif _probe_ffmpeg_encoder("vaapi"):
+        _DETECTED_HW_BACKEND = "vaapi"
+    else:
+        _DETECTED_HW_BACKEND = "x264"
+    return _DETECTED_HW_BACKEND
+
+
+def set_encoder_preference(pref: str):
+    """Sets the global encoder preference ('auto', 'nvenc', 'vaapi', or 'x264')."""
+    global _ENCODER_PREFERENCE
+    p = str(pref or "auto").strip().lower()
+    _ENCODER_PREFERENCE = p if p in ("auto", "nvenc", "vaapi", "x264") else "auto"
+
+
+def get_encoder_preference() -> str:
+    return _ENCODER_PREFERENCE
+
+
+def resolve_active_encoder(preferred: str | None = None) -> tuple[str, str]:
+    """
+    Resolves (backend_key, human_readable_label) according to user preference
+    with automatic fallback if the requested hardware is not present.
+    """
+    pref = (preferred or _ENCODER_PREFERENCE or "auto").strip().lower()
+    if pref == "nvenc" and _probe_ffmpeg_encoder("nvenc"):
+        return "nvenc", "NVIDIA NVENC (h264_nvenc GPU)"
+    if pref == "vaapi" and _probe_ffmpeg_encoder("vaapi"):
+        return "vaapi", "Intel/AMD VA-API (h264_vaapi GPU)"
+    if pref == "x264":
+        return "x264", "CPU Software (libx264)"
+
+    best = detect_hardware_encoder()
+    if best == "nvenc":
+        return "nvenc", "NVIDIA NVENC (h264_nvenc GPU)"
+    if best == "vaapi":
+        return "vaapi", "Intel/AMD VA-API (h264_vaapi GPU)"
+    return "x264", "CPU Fallback (libx264)"
+
+
+def build_video_encoder_args(
+    backend: str,
+    qp: int = 22,
+    gop: int | None = None,
+    low_latency_cpu: bool = False,
+) -> tuple[list[str], list[str]]:
+    """Returns (ffmpeg_global_hw_args, ffmpeg_video_codec_args) for 'nvenc', 'vaapi', or 'x264'."""
+    gop_args = ["-g", str(int(gop))] if gop else []
+    if backend == "nvenc":
+        return (
+            [],
+            [
+                "-vf", "format=yuv420p",
+                "-c:v", "h264_nvenc",
+                "-preset", "p4",
+                "-tune", "ll",
+                "-rc", "constqp",
+                "-qp", str(int(qp)),
+            ] + gop_args,
+        )
+    if backend == "vaapi":
+        return (
+            ["-vaapi_device", "/dev/dri/renderD128"],
+            [
+                "-vf", "format=nv12,hwupload",
+                "-c:v", "h264_vaapi",
+                "-qp", str(int(qp)),
+            ] + gop_args,
+        )
+    # CPU libx264 fallback
+    cpu_args = [
+        "-vf", "format=yuv420p",
+        "-c:v", "libx264",
+        "-preset", "veryfast" if low_latency_cpu else "ultrafast",
+    ]
+    if low_latency_cpu:
+        cpu_args += ["-tune", "zerolatency"]
+    cpu_args += ["-crf", str(int(qp))] + gop_args
+    return [], cpu_args
+
+
 class VAAPIRecorder:
     """
-    Lightweight hardware video recorder for Intel HD Graphics (VA-API h264_vaapi).
+    Lightweight hardware video recorder supporting NVIDIA NVENC (h264_nvenc),
+    Intel/AMD VA-API (h264_vaapi), and CPU fallback (libx264).
     Records the composited Program video output (BGRA) along with optional microphone/system audio.
     """
 
@@ -82,7 +226,7 @@ class VAAPIRecorder:
         self.fps = fps
         self.recording = False
         self.output_path = ""
-        self.encoder_name = "Intel VA-API (h264_vaapi)"
+        _, self.encoder_name = resolve_active_encoder()
         self.start_time = 0.0
         self.bitrate_kbps = 0.0
         self.bitrate_str = "0 kbit/s"
@@ -104,11 +248,10 @@ class VAAPIRecorder:
             return False
 
         self.output_path = output_path
-        has_vaapi = os.path.exists("/dev/dri/renderD128")
+        backend, self.encoder_name = resolve_active_encoder()
+        hw_global_args, vcodec_args = build_video_encoder_args(backend, qp=22, gop=None, low_latency_cpu=False)
 
-        cmd = ["ffmpeg", "-y"]
-        if has_vaapi:
-            cmd += ["-vaapi_device", "/dev/dri/renderD128"]
+        cmd = ["ffmpeg", "-y"] + hw_global_args
 
         # Video input via stdin pipe (constant real-time frame rate paced by _write_loop)
         cmd += [
@@ -150,21 +293,7 @@ class VAAPIRecorder:
                     "-f", "pulse", "-i", mic_dev,
                 ]
 
-        if has_vaapi:
-            self.encoder_name = "Intel VA-API (h264_vaapi GPU)"
-            cmd += [
-                "-vf", "format=nv12,hwupload",
-                "-c:v", "h264_vaapi",
-                "-qp", "22",
-            ]
-        else:
-            self.encoder_name = "CPU Fallback (libx264 ultrafast)"
-            cmd += [
-                "-vf", "format=yuv420p",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "23",
-            ]
+        cmd += vcodec_args
 
         if record_audio:
             eff_vol = 0.0 if audio_muted else max(0.0, min(1.5, audio_gain))
@@ -368,8 +497,8 @@ class VAAPIStreamer:
         self.platform = "YouTube Live (RTMP)"
         self.server_url = "rtmp://a.rtmp.youtube.com/live2"
         self.stream_key = ""
-        self.qp = 23  # Quality parameter for Intel VA-API CQP (18=very high, 23=optimal for streaming, 28=low bitrate)
-        self.encoder_name = "Intel VA-API (h264_vaapi)"
+        self.qp = 23  # Quality parameter for NVENC/VA-API CQP (18=very high, 23=optimal for streaming, 28=low bitrate)
+        _, self.encoder_name = resolve_active_encoder()
         self.start_time = 0.0
         self.bitrate_kbps = 0.0
         self.bitrate_str = "0 kbit/s"
@@ -408,10 +537,12 @@ class VAAPIStreamer:
                 "Please enter a Stream Key in the Stream Settings.",
             )
 
-        has_vaapi = os.path.exists("/dev/dri/renderD128")
-        cmd = ["ffmpeg", "-y"]
-        if has_vaapi:
-            cmd += ["-vaapi_device", "/dev/dri/renderD128"]
+        backend, self.encoder_name = resolve_active_encoder()
+        gop = self.fps * 2
+        hw_global_args, vcodec_args = build_video_encoder_args(
+            backend, qp=self.qp, gop=gop, low_latency_cpu=True
+        )
+        cmd = ["ffmpeg", "-y"] + hw_global_args
 
         # 1. Raw BGRA Video Input via Pipe (constant real-time frame rate paced by _write_loop)
         cmd += [
@@ -457,25 +588,7 @@ class VAAPIStreamer:
             cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
 
         # 3. Video Encoder (keyframe interval every 2 seconds: -g 60 at 30 FPS)
-        gop = self.fps * 2
-        if has_vaapi:
-            self.encoder_name = "Intel VA-API (h264_vaapi)"
-            cmd += [
-                "-vf", "format=nv12,hwupload",
-                "-c:v", "h264_vaapi",
-                "-qp", str(self.qp),
-                "-g", str(gop),
-            ]
-        else:
-            self.encoder_name = "CPU (libx264 veryfast)"
-            cmd += [
-                "-vf", "format=yuv420p",
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-tune", "zerolatency",
-                "-crf", str(self.qp),
-                "-g", str(gop),
-            ]
+        cmd += vcodec_args
 
         # 4. Audio filter & AAC encoder (adelay=90|90 compensates for ~90ms PipeWire/PulseAudio buffer latency)
         if use_real_audio:
@@ -716,11 +829,12 @@ class VAAPIReplayRecorder:
         ts = time.strftime("%H-%M-%S")
         out_dir = self.get_replays_dir()
         self.output_path = os.path.join(out_dir, f"Replay_{self.clip_counter:02d}_{ts}.mp4")
-        has_vaapi = os.path.exists("/dev/dri/renderD128")
+        backend, self.encoder_name = resolve_active_encoder()
+        hw_global_args, vcodec_args = build_video_encoder_args(
+            backend, qp=22, gop=10, low_latency_cpu=False
+        )
 
-        cmd = ["ffmpeg", "-y"]
-        if has_vaapi:
-            cmd += ["-vaapi_device", "/dev/dri/renderD128"]
+        cmd = ["ffmpeg", "-y"] + hw_global_args
 
         cmd += [
             "-thread_queue_size", "512",
@@ -732,21 +846,7 @@ class VAAPIReplayRecorder:
         ]
 
         # Short keyframe intervals (-g 10) for responsive slow-motion & scrubbing in GStreamer
-        if has_vaapi:
-            cmd += [
-                "-vf", "format=nv12,hwupload",
-                "-c:v", "h264_vaapi",
-                "-qp", "22",
-                "-g", "10",
-            ]
-        else:
-            cmd += [
-                "-vf", "format=yuv420p",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "22",
-                "-g", "10",
-            ]
+        cmd += vcodec_args
 
         cmd += ["-movflags", "+faststart", self.output_path]
 

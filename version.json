@@ -1,7 +1,7 @@
 {
-  "version": "0.8.0",
+  "version": "0.8.1",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "New in v0.8.0: Per-source Broadcast Color Correction & Digital PTZ Zoom/Crop (🎨) with Brightness, Contrast, Saturation, Hue/Tint, 6 Quick Presets, 1.0x-3.0x Digital Zoom, X/Y Pan, and H/V Flip."
+  "changelog": "New in v0.8.1: Automatic & manual GPU/CPU hardware encoder switch (NVIDIA h264_nvenc ➔ Intel/AMD h264_vaapi ➔ CPU libx264) for recording, live streaming, and instant replay."
 }

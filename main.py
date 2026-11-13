@@ -30,7 +30,10 @@ from inputs import (
     serialize_input, deserialize_input, HAS_WEBENGINE
 )
 from audio_mixer import MicAudioMonitor, list_audio_devices
-from recorder import VAAPIRecorder, VAAPIStreamer, VAAPIReplayRecorder
+from recorder import (
+    VAAPIRecorder, VAAPIStreamer, VAAPIReplayRecorder,
+    resolve_active_encoder, set_encoder_preference, get_encoder_preference,
+)
 from web_remote import WebRemoteController, WebRemoteDialog
 from i18n import tr, get_lang, set_lang, toggle_lang, HelpDialog
 
@@ -1913,7 +1916,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.8.0"
+    APP_VERSION = "0.8.1"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
@@ -2331,7 +2334,8 @@ class LiteMixMainWindow(QMainWindow):
         self.btn_help.clicked.connect(self.open_help_dialog)
         foot_layout.addWidget(self.btn_help)
 
-        self.lbl_rec_status = QLabel(tr("Bereit (GPU: h264_vaapi)", "Ready (GPU: h264_vaapi)"))
+        _, enc_label = resolve_active_encoder()
+        self.lbl_rec_status = QLabel(tr(f"Bereit ({enc_label})", f"Ready ({enc_label})"))
         self.lbl_rec_status.setStyleSheet("color: #98a2b8; font-size: 10px;")
         # Use Ignored horizontal size policy so long status strings never increase the main window's minimum width
         self.lbl_rec_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -4831,6 +4835,10 @@ class LiteMixMainWindow(QMainWindow):
                 self.streamer.qp = int(d.get("qp", 23))
                 saved_fps = int(d.get("fps", 30))
                 self.set_fps(saved_fps)
+                set_encoder_preference(d.get("encoder_pref", "auto"))
+                _, enc_label = resolve_active_encoder()
+                self.recorder.encoder_name = enc_label
+                self.streamer.encoder_name = enc_label
             except Exception:
                 pass
 
@@ -4844,6 +4852,7 @@ class LiteMixMainWindow(QMainWindow):
                     "stream_key": self.streamer.stream_key,
                     "qp": self.streamer.qp,
                     "fps": self.fps,
+                    "encoder_pref": get_encoder_preference(),
                 }, f, indent=2, ensure_ascii=False)
         except Exception:
             pass
@@ -4852,11 +4861,11 @@ class LiteMixMainWindow(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowTitle(
             tr(
-                "Stream & Video Einstellungen (RTMP / SRT / FPS)",
-                "Stream & Video Settings (RTMP / SRT / FPS)",
+                "Stream & Video Einstellungen (RTMP / SRT / GPU-Encoder / FPS)",
+                "Stream & Video Settings (RTMP / SRT / GPU Encoder / FPS)",
             )
         )
-        dlg.setMinimumWidth(440)
+        dlg.setMinimumWidth(460)
         form = QFormLayout(dlg)
 
         combo_plat = QComboBox()
@@ -4906,13 +4915,28 @@ class LiteMixMainWindow(QMainWindow):
                 selected_fps_idx = i
         combo_fps.setCurrentIndex(selected_fps_idx)
 
+        combo_enc = QComboBox()
+        enc_options = [
+            ("auto", tr("⚡ Automatisch (NVIDIA NVENC ➔ Intel/AMD VA-API ➔ CPU)", "⚡ Auto (NVIDIA NVENC ➔ Intel/AMD VA-API ➔ CPU)")),
+            ("nvenc", tr("🟢 NVIDIA GeForce / RTX (h264_nvenc GPU)", "🟢 NVIDIA GeForce / RTX (h264_nvenc GPU)")),
+            ("vaapi", tr("🔵 Intel / AMD Radeon (h264_vaapi GPU)", "🔵 Intel / AMD Radeon (h264_vaapi GPU)")),
+            ("x264", tr("🖥️ CPU Software-Encoder (libx264)", "🖥️ CPU Software Encoder (libx264)")),
+        ]
+        cur_pref = get_encoder_preference()
+        selected_enc_idx = 0
+        for i, (val, label) in enumerate(enc_options):
+            combo_enc.addItem(label, val)
+            if val == cur_pref:
+                selected_enc_idx = i
+        combo_enc.setCurrentIndex(selected_enc_idx)
+
         spin_qp = QSpinBox()
         spin_qp.setRange(16, 32)
         spin_qp.setValue(self.streamer.qp)
         spin_qp.setToolTip(
             tr(
-                "VA-API Qualitätsstufe QP (kleiner = höhere Qualität/Bitrate, Standard: 23)",
-                "VA-API quality parameter QP (lower = higher quality/bitrate, default: 23)",
+                "Hardware-Encoder Qualitätsstufe QP (kleiner = höhere Qualität/Bitrate, Standard: 23)",
+                "Hardware encoder quality parameter QP (lower = higher quality/bitrate, default: 23)",
             )
         )
 
@@ -4926,7 +4950,8 @@ class LiteMixMainWindow(QMainWindow):
         form.addRow(tr("Server-URL:", "Server URL:"), edit_url)
         form.addRow(tr("Stream-Schlüssel:", "Stream Key:"), key_row)
         form.addRow(tr("Bildrate (FPS):", "Frame Rate (FPS):"), combo_fps)
-        form.addRow(tr("VA-API Qualität (QP):", "VA-API Quality (QP):"), spin_qp)
+        form.addRow(tr("Video-Encoder (GPU/CPU):", "Video Encoder (GPU/CPU):"), combo_enc)
+        form.addRow(tr("Encoder-Qualität (QP):", "Encoder Quality (QP):"), spin_qp)
 
         btn_save = QPushButton(tr("Einstellungen speichern", "Save Settings"))
         btn_save.setObjectName("AddInputBtn")
@@ -4940,11 +4965,15 @@ class LiteMixMainWindow(QMainWindow):
             self.streamer.qp = spin_qp.value()
             chosen_fps = int(combo_fps.currentData())
             self.set_fps(chosen_fps)
+            set_encoder_preference(str(combo_enc.currentData()))
+            _, enc_label = resolve_active_encoder()
+            self.recorder.encoder_name = enc_label
+            self.streamer.encoder_name = enc_label
             self._save_stream_config()
             self.lbl_rec_status.setText(
                 tr(
-                    f"📡 Bereit: {self.streamer.platform} ({self.fps} FPS)",
-                    f"📡 Ready: {self.streamer.platform} ({self.fps} FPS)",
+                    f"📡 Bereit: {self.streamer.platform} ({self.fps} FPS | {enc_label})",
+                    f"📡 Ready: {self.streamer.platform} ({self.fps} FPS | {enc_label})",
                 )
             )
 

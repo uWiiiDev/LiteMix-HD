@@ -153,7 +153,7 @@ HELP_HTML_DE = """
     <li><span class="key">🌐 DE/EN</span> – <b>Sprache wechseln:</b> Schaltet Oberfläche und Hilfe live zwischen Deutsch und Englisch um.</li>
     <li><span class="key">❓</span> – <b>Hilfe &amp; Handbuch:</b> Öffnet diese Funktionsübersicht.</li>
     <li><span class="key">📡</span> / <span class="key">⏹📡</span> – <b>Live-Stream starten / stoppen</b> (RTMP, YouTube, Twitch, SRT, UDP).</li>
-    <li><span class="key">⚙️</span> – <b>Stream- &amp; Video-Einstellungen:</b> Plattform, Server-URL, Stream-Schlüssel, Qualitätsfaktor (QP) und Bildrate (FPS).</li>
+    <li><span class="key">⚙️</span> – <b>Stream- &amp; Video-Einstellungen:</b> Plattform, Server-URL, Stream-Schlüssel, <b>GPU-/CPU-Encoder-Weiche</b> (Auto: NVIDIA <span class="key">h264_nvenc</span> ➔ Intel/AMD <span class="key">h264_vaapi</span> ➔ CPU <span class="key">libx264</span>), Qualitätsfaktor (QP) und Bildrate (FPS).</li>
     <li><span class="key">🔴</span> / <span class="key">⏹🔴</span> – <b>Lokale Aufnahme starten / stoppen:</b> Speichert das Live-Programm als MP4-Video in <span class="key">~/Videos</span>.</li>
   </ul>
 </div>
@@ -249,7 +249,7 @@ HELP_HTML_EN = """
     <li><span class="key">🌐 DE/EN</span> – <b>Switch Language:</b> Toggles the UI and Help language live between German and English.</li>
     <li><span class="key">❓</span> – <b>Help &amp; Manual:</b> Opens this comprehensive reference guide.</li>
     <li><span class="key">📡</span> / <span class="key">⏹📡</span> – <b>Start / Stop Live Stream</b> (RTMP, YouTube, Twitch, SRT, UDP).</li>
-    <li><span class="key">⚙️</span> – <b>Stream &amp; Video Settings:</b> Platform, Server URL, Stream Key, Quality (QP), and Frame Rate (FPS).</li>
+    <li><span class="key">⚙️</span> – <b>Stream &amp; Video Settings:</b> Platform, Server URL, Stream Key, <b>GPU/CPU Encoder Selector</b> (Auto: NVIDIA <span class="key">h264_nvenc</span> ➔ Intel/AMD <span class="key">h264_vaapi</span> ➔ CPU <span class="key">libx264</span>), Quality (QP), and Frame Rate (FPS).</li>
     <li><span class="key">🔴</span> / <span class="key">⏹🔴</span> – <b>Start / Stop Local Recording:</b> Records live Program output as an MP4 file in <span class="key">~/Videos</span>.</li>
   </ul>
 </div>

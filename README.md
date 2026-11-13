@@ -29,7 +29,8 @@ Specifically engineered for compact laptops and low-power CPUs (e.g. Intel Core 
 - **iPad / Tablet / Browser Web Remote Control (`📱`):**
   - Built-in multi-threaded HTTP remote server (`port 8088`) protected by a random security token and scannable **QR code**.
   - Features live Preview/Program monitors, transition deck, source grid (`PRV`, `CUT`, `OV1`, `OV2`), media transport (`▶/⏸`, `⏹`, `🔁`, `↩`, slow-motion speed), audio mixer, and live lower-third text editor.
-- **Hardware-Accelerated Recording & Live Streaming (`h264_vaapi`):**
+- **Hardware-Accelerated Recording, Live Streaming & Instant Replay (`h264_nvenc` / `h264_vaapi` / `libx264`):**
+  - Automatic GPU encoder detection and manual selector (`⚙️`): **NVIDIA NVENC (`h264_nvenc`) ➔ Intel/AMD VA-API (`h264_vaapi`) ➔ CPU Fallback (`libx264`)** across recording, live streaming, and instant replay.
   - Lip-synced audio/video streaming to **YouTube Live, Twitch, Custom RTMP/RTMPS, SRT, and UDP**.
   - Local MP4 recording to `~/Videos` with minimal CPU usage (~18 %).
 - **Audio Mixer with Audio-Follow-Video (AFV) & Real-Time VU Meters:**
