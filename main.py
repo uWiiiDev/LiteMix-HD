@@ -1756,7 +1756,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.6.0"
+    APP_VERSION = "0.6.1"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
@@ -2268,6 +2268,10 @@ class LiteMixMainWindow(QMainWindow):
         )
         set_menu.addAction(tr("🔄  Auf Updates prüfen (GitHub)...", "🔄  Check for Updates (GitHub)..."), self.check_for_updates)
         set_menu.addSeparator()
+        set_menu.addAction(
+            tr("🗑️  Alle Quellen schließen (Leeres Set)", "🗑️  Close All Sources (Empty Set)"),
+            self.clear_to_empty_set,
+        )
         set_menu.addAction(tr("✨  Standard-Set wiederherstellen", "✨  Restore Default Set"), self.reset_to_default_set)
         self.btn_set_menu.setMenu(set_menu)
 
@@ -2705,8 +2709,6 @@ class LiteMixMainWindow(QMainWindow):
         }
 
     def _save_last_preset_silent(self):
-        if not self.inputs:
-            return
         try:
             data = self._build_preset_dict()
             with open(self._last_preset_path(), "w", encoding="utf-8") as f:
@@ -2758,7 +2760,7 @@ class LiteMixMainWindow(QMainWindow):
                 if inp is not None:
                     new_inputs.append(inp)
 
-            if not new_inputs:
+            if not new_inputs and raw_inputs:
                 if not silent:
                     QMessageBox.warning(
                         self,
@@ -2775,12 +2777,18 @@ class LiteMixMainWindow(QMainWindow):
                 self.add_input(inp)
 
             n = len(self.inputs)
-            self.pgm_idx = max(0, min(n - 1, int(data.get("pgm_idx", 0))))
-            self.prv_idx = max(0, min(n - 1, int(data.get("prv_idx", min(1, n - 1)))))
-            ov1 = int(data.get("ovl1_idx", -1))
-            ov2 = int(data.get("ovl2_idx", -1))
-            self.ovl1_idx = ov1 if 0 <= ov1 < n else -1
-            self.ovl2_idx = ov2 if 0 <= ov2 < n else -1
+            if n > 0:
+                self.pgm_idx = max(0, min(n - 1, int(data.get("pgm_idx", 0))))
+                self.prv_idx = max(0, min(n - 1, int(data.get("prv_idx", min(1, n - 1)))))
+                ov1 = int(data.get("ovl1_idx", -1))
+                ov2 = int(data.get("ovl2_idx", -1))
+                self.ovl1_idx = ov1 if 0 <= ov1 < n else -1
+                self.ovl2_idx = ov2 if 0 <= ov2 < n else -1
+            else:
+                self.pgm_idx = 0
+                self.prv_idx = 0
+                self.ovl1_idx = -1
+                self.ovl2_idx = -1
 
             r1 = data.get("ovl1_rect")
             if isinstance(r1, list) and len(r1) == 4:
@@ -2859,9 +2867,17 @@ class LiteMixMainWindow(QMainWindow):
     def load_last_preset(self):
         self.load_preset_from_file(self._last_preset_path())
 
+    def clear_to_empty_set(self):
+        self._clear_all_inputs()
+        self._save_last_preset_silent()
+        self.lbl_rec_status.setText(
+            tr("🗑️ Alle Quellen geschlossen (Leeres Set)", "🗑️ All sources closed (Empty Set)")
+        )
+
     def reset_to_default_set(self):
         self._clear_all_inputs()
         self._init_default_inputs()
+        self._save_last_preset_silent()
         self.lbl_rec_status.setText(
             tr("✨ Standard-Set wiederhergestellt", "✨ Default Set restored")
         )
@@ -2876,12 +2892,7 @@ class LiteMixMainWindow(QMainWindow):
         self.grid_layout.addWidget(tile, idx // cols, idx % cols)
 
     def remove_input(self, index: int):
-        if len(self.inputs) <= 1:
-            QMessageBox.information(
-                self,
-                tr("Hinweis", "Notice"),
-                tr("Mindestens eine Quelle muss geöffnet bleiben.", "At least one source must remain open."),
-            )
+        if not (0 <= index < len(self.inputs)):
             return
         inp = self.inputs.pop(index)
         inp.stop()
@@ -2915,6 +2926,7 @@ class LiteMixMainWindow(QMainWindow):
             tile = self.input_tiles[idx]
             tile.set_index(idx)
             self.grid_layout.addWidget(tile, idx // cols, idx % cols)
+        self._save_last_preset_silent()
 
     def add_test_pattern_input(self):
         num = len(self.inputs) + 1

@@ -1,7 +1,7 @@
 {
-  "version": "0.6.0",
+  "version": "0.6.1",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "New in v0.6.0: Built-in File & Website Data Scraper (🌐 DataScraperEngine with HTML/CSS/JSON/RSS/CSV/Regex extraction & live placeholders {1}, {2}, {ticker}) and Horizontal News Ticker / Crawl Mode (📰) with Bottom Ticker Bar preset."
+  "changelog": "New in v0.6.1: Allow closing all sources down to an empty set (0 sources) via ✕ or the Set menu (🗑️ Close All Sources), plus File & Website Data Scraper (🌐) and Horizontal News Ticker (📰)."
 }
