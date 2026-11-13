@@ -328,9 +328,10 @@ WEB_REMOTE_HTML = r"""<!DOCTYPE html>
       <button class="btn btn-rec" id="btnRec" onclick="sendAction({cmd:'rec_toggle'})">🔴 REC</button>
       <button class="btn btn-stream" id="btnStream" onclick="sendAction({cmd:'stream_toggle'})">📡 STREAM</button>
     </div>
-    <div class="deck-row">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;">
       <button class="ibtn" id="btnMicMute" onclick="sendAction({cmd:'mic_mute'})">🎙️ MIC</button>
       <button class="ibtn" id="btnClipMute" onclick="sendAction({cmd:'clip_mute'})">🎬 VID</button>
+      <button class="ibtn" id="btnExtOut" onclick="sendAction({cmd:'toggle_ext_output'})">🖥️ OUT</button>
     </div>
   </div>
 
@@ -633,6 +634,10 @@ async function pollState() {
     document.getElementById('btnMicMute').textContent = st.mic_muted ? '🔇 MIC' : '🎙️ MIC';
     document.getElementById('btnClipMute').className = 'ibtn' + (st.clip_muted ? ' on-mute' : '');
     document.getElementById('btnClipMute').textContent = st.clip_muted ? '🔇 VID' : '🎬 VID';
+    const btnExt = document.getElementById('btnExtOut');
+    if (btnExt) {
+      btnExt.className = 'ibtn' + (st.ext_output_active ? ' on-ret' : '');
+    }
 
     const prvInp = st.inputs[st.prv_idx];
     const prvTrans = document.getElementById('prvTransport');
@@ -978,6 +983,7 @@ class WebRemoteController:
             "replay_btn_text": win.btn_replay.text(),
             "mic_muted": bool(win.mic_muted),
             "clip_muted": bool(win.btn_clip_mute.isChecked()),
+            "ext_output_active": bool(win.is_ext_output_active()) if hasattr(win, "is_ext_output_active") else False,
             "rec_status": win.lbl_rec_status.text(),
             "stats_text": win.lbl_stats.text(),
             "inputs": inputs_list,
@@ -994,6 +1000,9 @@ class WebRemoteController:
             win.toggle_ftb()
         elif action == "toggle_lang":
             win.toggle_ui_language()
+        elif action == "toggle_ext_output":
+            if hasattr(win, "toggle_external_program_output"):
+                win.toggle_external_program_output()
         elif action == "tbar":
             val = max(0, min(100, int(cmd.get("value", 0))))
             win.tbar_slider.setValue(val)

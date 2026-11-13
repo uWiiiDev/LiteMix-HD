@@ -1,7 +1,7 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "New in v0.3.0: Built-in Help & Function Guide dialog (❓ / F12) explaining all buttons, icons, and workflows, live German/English language switcher (🌐 DE / 🌐 EN) across the desktop UI, Help window, and iPad Web Remote, plus full English code documentation on GitHub."
+  "changelog": "New in v0.4.0: External PROGRAM Output (🖥️ / F11) to display the clean live Program feed either in a separate 16:9 window (for Zoom/Teams/Discord) or borderless fullscreen on any connected monitor, projector, or HDMI output."
 }

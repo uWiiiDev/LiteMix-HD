@@ -10,9 +10,10 @@ Specifically engineered for compact laptops and low-power CPUs (e.g. Intel Core 
 
 - **Bilingual User Interface & In-App Help (`🌐 DE/EN` & `❓`):**
   - Live one-click language switching between **German (`DE`)** and **English (`EN`)** for both the desktop UI, the Web Remote UI, and the comprehensive built-in Help & Function Guide (`❓` / `F12`).
-- **Preview (`PREVIEW`) & Live (`PROGRAM`) Monitoring:**
+- **Preview (`PREVIEW`) & Live (`PROGRAM`) Monitoring + External Output (`🖥️`):**
   - Direct media transport bar (`▶`/`⏸`, `⏹`, Loop `🔁`, Auto-Return `↩`, Scrubber & Timecode) inside the `PREVIEW` monitor and on each playable input tile.
   - Broadcast transitions via **CUT**, **FADE** (configurable duration in ms), manual **T-Bar**, and **FTB** (Fade to Black).
+  - **External `PROGRAM` Output (`🖥️` / `F11`):** Output the clean live Program feed either as a separate resizable 16:9 window (ideal for Zoom/Teams/Discord screen sharing) or borderless fullscreen on any connected monitor, projector, or HDMI output.
 - **2 Freely Positionable & Resizable Overlays (`OV1` & `OV2`):**
   - Drag directly inside the `PROGRAM` monitor with the mouse, resize via 8 corner/edge handles, zoom with the mouse wheel, or use right-click layout presets (PiP corners, fullscreen, 16:9 snap).
 - **3 Broadcast Lower Third Templates:**

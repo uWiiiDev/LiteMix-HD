@@ -849,6 +849,146 @@ class VideoMonitorWidget(QWidget):
         p.end()
 
 
+class ExternalProgramOutputWindow(QWidget):
+    """
+    Clean external 16:9 PROGRAM output window (Projector / Fullscreen Output).
+    Can be displayed either as a freely resizable window (e.g. for screen-sharing into
+    Zoom/Teams/Discord) or borderless fullscreen on any connected monitor/projector/HDMI.
+    """
+
+    def __init__(self, main_win):
+        super().__init__(None, Qt.WindowType.Window)
+        self.main_win = main_win
+        self.frame_img: QImage | None = None
+        self.mode: str = "window"  # "window" or "fullscreen"
+        self.screen_index: int = 0
+        self.resize(854, 480)
+        self.setMinimumSize(320, 180)
+        self.setStyleSheet("background-color: #000000;")
+        self.setMouseTracking(True)
+        self.refresh_language()
+
+    def refresh_language(self):
+        self.setWindowTitle(
+            tr(
+                "LiteMix HD – PROGRAM-Ausgabe (Doppelklick: Vollbild, Esc: Schließen)",
+                "LiteMix HD – PROGRAM Output (Double-click: Fullscreen, Esc: Close)",
+            )
+        )
+        self.setToolTip(
+            tr(
+                "Doppelklick oder F11: Fenster ⇄ Vollbild | Rechtsklick: Monitor wählen | Esc: Schließen",
+                "Double-click or F11: Window ⇄ Fullscreen | Right-click: Select Monitor | Esc: Close",
+            )
+        )
+
+    def set_frame(self, img: QImage):
+        self.frame_img = img
+        if self.isVisible():
+            self.update()
+
+    def show_windowed(self):
+        self.mode = "window"
+        self.unsetCursor()
+        if self.isFullScreen():
+            self.showNormal()
+        self.refresh_language()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        if self.main_win:
+            self.main_win._refresh_ext_output_button_style()
+
+    def show_fullscreen_on_screen(self, screen_idx: int = 0):
+        screens = QApplication.screens()
+        if not screens:
+            self.show_windowed()
+            return
+        screen_idx = max(0, min(len(screens) - 1, int(screen_idx)))
+        target_screen = screens[screen_idx]
+        self.screen_index = screen_idx
+        self.mode = "fullscreen"
+
+        if self.isFullScreen():
+            self.showNormal()
+
+        geom = target_screen.geometry()
+        self.setGeometry(geom)
+        self.winId()
+        wh = self.windowHandle()
+        if wh is not None:
+            try:
+                wh.setScreen(target_screen)
+            except Exception:
+                pass
+        self.setGeometry(geom)
+        self.showFullScreen()
+        self.raise_()
+        if self.main_win:
+            self.main_win._refresh_ext_output_button_style()
+
+    def toggle_window_fullscreen(self):
+        if self.mode == "fullscreen" or self.isFullScreen():
+            self.show_windowed()
+        else:
+            self.show_fullscreen_on_screen(self.screen_index)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.toggle_window_fullscreen()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.close()
+            event.accept()
+            return
+        if key == Qt.Key.Key_F11:
+            self.toggle_window_fullscreen()
+            event.accept()
+            return
+        if key == Qt.Key.Key_Space and self.main_win:
+            self.main_win.do_cut()
+            event.accept()
+            return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.main_win:
+            self.main_win.do_fade()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event):
+        if not self.main_win:
+            return
+        menu = self.main_win._build_ext_output_menu(parent_widget=self)
+        menu.exec(event.globalPos())
+
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        if self.main_win:
+            QTimer.singleShot(0, self.main_win._refresh_ext_output_button_style)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        w, h = self.width(), self.height()
+        p.fillRect(0, 0, w, h, QColor(0, 0, 0))
+
+        if self.frame_img and not self.frame_img.isNull():
+            tw = w
+            th = int(tw * 9 / 16)
+            if th > h:
+                th = h
+                tw = int(th * 16 / 9)
+            vx = (w - tw) // 2
+            vy = (h - th) // 2
+            p.drawImage(QRectF(vx, vy, max(1, tw), max(1, th)), self.frame_img)
+        p.end()
+
+
 class VUMeterBar(QWidget):
     """Vertical real-time audio VU meter (Green / Yellow / Red)."""
 
@@ -1479,6 +1619,7 @@ class LiteMixMainWindow(QMainWindow):
         ("save_set", "💾 Set & Einstellungen", "Quellen-Set speichern unter...", "Ctrl+S"),
         ("load_set", "💾 Set & Einstellungen", "Quellen-Set laden...", "Ctrl+O"),
         ("open_shortcuts", "💾 Set & Einstellungen", "Tastenkürzel-Einstellungen öffnen", "Ctrl+K"),
+        ("ext_output_toggle", "💾 Set & Einstellungen", "Externe PROGRAM-Ausgabe (Fenster/Monitor) ein/aus", "F11"),
         ("open_help", "💾 Set & Einstellungen", "Hilfe & Funktionsübersicht öffnen", "F12"),
     ]
 
@@ -1515,6 +1656,7 @@ class LiteMixMainWindow(QMainWindow):
         "save_set": "Save Source Set As...",
         "load_set": "Load Source Set...",
         "open_shortcuts": "Open Hotkey Settings",
+        "ext_output_toggle": "Toggle External PROGRAM Output (Window/Monitor)",
         "open_help": "Open Help & Function Guide",
     }
 
@@ -1571,6 +1713,11 @@ class LiteMixMainWindow(QMainWindow):
         self._last_wall_time = time.time()
         self._cpu_percent = 0.0
 
+        # External PROGRAM output window (Projector / Fullscreen on Monitor)
+        self.ext_output_win = ExternalProgramOutputWindow(self)
+        self._last_ext_output_mode = "window"
+        self._last_ext_output_screen = 1 if len(QApplication.screens()) > 1 else 0
+
         self._build_ui()
         last_p = self._last_preset_path()
         if not (os.path.exists(last_p) and self.load_preset_from_file(last_p, silent=True)):
@@ -1580,6 +1727,7 @@ class LiteMixMainWindow(QMainWindow):
         # Built-in HTTP Web Controller for iPad / Tablet / Browser (with Token & QR Code)
         self.web_remote = WebRemoteController(self)
         self._refresh_remote_button_style()
+        self._refresh_ext_output_button_style()
         self.apply_language()
 
         # 30 FPS Master Render Loop (PreciseTimer for jitter-free frame pacing)
@@ -1801,6 +1949,11 @@ class LiteMixMainWindow(QMainWindow):
         self.btn_remote.clicked.connect(self.open_web_remote_dialog)
         foot_layout.addWidget(self.btn_remote)
 
+        self.btn_ext_output = QPushButton("🖥️")
+        self.btn_ext_output.setObjectName("FooterIconBtn")
+        self.btn_ext_output.clicked.connect(self.open_ext_output_menu)
+        foot_layout.addWidget(self.btn_ext_output)
+
         self.btn_update = QPushButton("🔄")
         self.btn_update.setObjectName("FooterIconBtn")
         self.btn_update.clicked.connect(self.check_for_updates)
@@ -1916,6 +2069,10 @@ class LiteMixMainWindow(QMainWindow):
             tr("📱  Web-Fernsteuerung (iPad / QR-Code)...", "📱  Web Remote Control (iPad / QR Code)..."),
             self.open_web_remote_dialog,
         )
+        set_menu.addAction(
+            tr("🖥️  Externe PROGRAM-Ausgabe (Fenster / Monitor)...", "🖥️  External PROGRAM Output (Window / Monitor)..."),
+            self.open_ext_output_menu,
+        )
         set_menu.addAction(tr("❓  Hilfe & Funktionsübersicht...", "❓  Help & Function Guide..."), self.open_help_dialog)
         set_menu.addAction(
             tr("🌐  Sprache wechseln (Deutsch / English)", "🌐  Switch Language (Deutsch / English)"),
@@ -2002,10 +2159,13 @@ class LiteMixMainWindow(QMainWindow):
             self.preview_mon.refresh_language()
         if hasattr(self, "program_mon"):
             self.program_mon.refresh_language()
+        if hasattr(self, "ext_output_win") and self.ext_output_win:
+            self.ext_output_win.refresh_language()
 
         self._rebuild_menus()
         self._apply_shortcuts()
         self._refresh_remote_button_style()
+        self._refresh_ext_output_button_style()
         for tile in self.input_tiles:
             tile.refresh_language()
 
@@ -2120,6 +2280,7 @@ class LiteMixMainWindow(QMainWindow):
             "save_set": self.save_preset_dialog,
             "load_set": self.load_preset_dialog,
             "open_shortcuts": self.open_shortcuts_dialog,
+            "ext_output_toggle": self.toggle_external_program_output,
             "open_help": self.open_help_dialog,
         }
         return mapping.get(action_id)
@@ -3321,7 +3482,7 @@ class LiteMixMainWindow(QMainWindow):
 
         p.end()
 
-        # 5. Update Preview & Program Monitors
+        # 5. Update Preview & Program Monitors (+ External PROGRAM Output if open)
         self.preview_mon.set_frame(
             prv_frame,
             f"Input {self.prv_idx + 1}: {prv_inp.name}" if prv_inp else ""
@@ -3330,6 +3491,8 @@ class LiteMixMainWindow(QMainWindow):
             pgm_canvas,
             f"Input {self.pgm_idx + 1}: {pgm_inp.name}" if pgm_inp else ""
         )
+        if hasattr(self, "ext_output_win") and self.ext_output_win and self.ext_output_win.isVisible():
+            self.ext_output_win.set_frame(pgm_canvas)
 
         # 6. Push to Hardware VA-API Recorder, Replay-Recorder & Live-Streamer
         status_parts = []
@@ -3459,6 +3622,135 @@ class LiteMixMainWindow(QMainWindow):
         dlg = WebRemoteDialog(self, self.web_remote)
         dlg.exec()
         self._refresh_remote_button_style()
+
+    # ================= EXTERNAL PROGRAM OUTPUT (WINDOW / FULLSCREEN MONITOR) =================
+    def is_ext_output_active(self) -> bool:
+        return bool(hasattr(self, "ext_output_win") and self.ext_output_win and self.ext_output_win.isVisible())
+
+    def open_external_program_window(self):
+        if not hasattr(self, "ext_output_win") or not self.ext_output_win:
+            self.ext_output_win = ExternalProgramOutputWindow(self)
+        self._last_ext_output_mode = "window"
+        self.ext_output_win.set_frame(self._pgm_canvas)
+        self.ext_output_win.show_windowed()
+        self._refresh_ext_output_button_style()
+        self.lbl_rec_status.setText(
+            tr(
+                "🪟 PROGRAM-Ausgabe als eigenes Fenster geöffnet (Doppelklick: Vollbild, Esc: Schließen)",
+                "🪟 PROGRAM output opened in separate window (Double-click: Fullscreen, Esc: Close)",
+            )
+        )
+
+    def open_external_program_fullscreen(self, screen_idx: int = 0):
+        if not hasattr(self, "ext_output_win") or not self.ext_output_win:
+            self.ext_output_win = ExternalProgramOutputWindow(self)
+        screens = QApplication.screens()
+        screen_idx = max(0, min(len(screens) - 1, int(screen_idx))) if screens else 0
+        self._last_ext_output_mode = "fullscreen"
+        self._last_ext_output_screen = screen_idx
+        self.ext_output_win.set_frame(self._pgm_canvas)
+        self.ext_output_win.show_fullscreen_on_screen(screen_idx)
+        self._refresh_ext_output_button_style()
+        scr_name = screens[screen_idx].name() if screens else f"#{screen_idx + 1}"
+        self.lbl_rec_status.setText(
+            tr(
+                f"🖥️ PROGRAM-Vollbild aktiv auf Monitor {screen_idx + 1} ({scr_name}) – Esc zum Schließen",
+                f"🖥️ PROGRAM fullscreen active on Monitor {screen_idx + 1} ({scr_name}) – Esc to close",
+            )
+        )
+
+    def close_external_program_output(self):
+        if hasattr(self, "ext_output_win") and self.ext_output_win and self.ext_output_win.isVisible():
+            self.ext_output_win.close()
+        self._refresh_ext_output_button_style()
+        self.lbl_rec_status.setText(
+            tr("🖥️ Externe PROGRAM-Ausgabe geschlossen", "🖥️ External PROGRAM output closed")
+        )
+
+    def toggle_external_program_output(self):
+        if self.is_ext_output_active():
+            self.close_external_program_output()
+        else:
+            screens = QApplication.screens()
+            if self._last_ext_output_mode == "fullscreen" or len(screens) > 1:
+                target_idx = min(self._last_ext_output_screen, max(0, len(screens) - 1))
+                self.open_external_program_fullscreen(target_idx)
+            else:
+                self.open_external_program_window()
+
+    def _build_ext_output_menu(self, parent_widget=None) -> QMenu:
+        menu = QMenu(parent_widget or self)
+        active = self.is_ext_output_active()
+        cur_mode = self.ext_output_win.mode if active else None
+        cur_scr = self.ext_output_win.screen_index if active else -1
+
+        p_win = "✓ " if (active and cur_mode == "window") else "   "
+        menu.addAction(
+            tr(
+                f"{p_win}🪟 Als eigenes Fenster öffnen (16:9)",
+                f"{p_win}🪟 Open as Separate Window (16:9)",
+            ),
+            self.open_external_program_window,
+        )
+        menu.addSeparator()
+
+        screens = QApplication.screens()
+        for idx, scr in enumerate(screens):
+            g = scr.geometry()
+            p_scr = "✓ " if (active and cur_mode == "fullscreen" and cur_scr == idx) else "   "
+            menu.addAction(
+                tr(
+                    f"{p_scr}🖥️ Vollbild auf Monitor {idx + 1}: {scr.name()} ({g.width()}×{g.height()})",
+                    f"{p_scr}🖥️ Fullscreen on Monitor {idx + 1}: {scr.name()} ({g.width()}×{g.height()})",
+                ),
+                lambda i=idx: self.open_external_program_fullscreen(i),
+            )
+
+        if active:
+            menu.addSeparator()
+            menu.addAction(
+                tr(
+                    "⏹ Externe PROGRAM-Ausgabe schließen (Esc)",
+                    "⏹ Close External PROGRAM Output (Esc)",
+                ),
+                self.close_external_program_output,
+            )
+        return menu
+
+    def open_ext_output_menu(self):
+        menu = self._build_ext_output_menu(self)
+        menu.exec(self.btn_ext_output.mapToGlobal(self.btn_ext_output.rect().topLeft()))
+
+    def _refresh_ext_output_button_style(self):
+        if not hasattr(self, "btn_ext_output") or not self.btn_ext_output:
+            return
+        active = self.is_ext_output_active()
+        hk = self.shortcuts_map.get("ext_output_toggle", "").strip()
+        hk_suffix = f" [{hk}]" if hk else ""
+        if active:
+            mode_txt = (
+                tr("Vollbild", "Fullscreen")
+                if self.ext_output_win.mode == "fullscreen"
+                else tr("Fenster", "Window")
+            )
+            self.btn_ext_output.setToolTip(
+                tr(
+                    f"🖥️ Externe PROGRAM-Ausgabe aktiv ({mode_txt}){hk_suffix}\nKlicken zum Umschalten oder Schließen",
+                    f"🖥️ External PROGRAM Output active ({mode_txt}){hk_suffix}\nClick to switch monitor/mode or close",
+                )
+            )
+            self.btn_ext_output.setStyleSheet(
+                "font-size: 16px; padding: 2px 10px; min-width: 38px; min-height: 28px; "
+                "background-color: #164836; border: 1px solid #28b87a; color: #ffffff;"
+            )
+        else:
+            self.btn_ext_output.setToolTip(
+                tr(
+                    f"🖥️ Externe PROGRAM-Ausgabe (eigenes Fenster oder Vollbild auf 2. Monitor/Beamer){hk_suffix}",
+                    f"🖥️ External PROGRAM Output (separate window or fullscreen on 2nd monitor/projector){hk_suffix}",
+                )
+            )
+            self.btn_ext_output.setStyleSheet("")
 
     # ================= GITHUB AUTO-UPDATER =================
     def _app_dir(self) -> str:
@@ -3740,6 +4032,8 @@ class LiteMixMainWindow(QMainWindow):
         """Cleanly stops all media pipelines and restarts LiteMix HD."""
         self._save_last_preset_silent()
         self.render_timer.stop()
+        if hasattr(self, "ext_output_win") and self.ext_output_win:
+            self.ext_output_win.close()
         if hasattr(self, "web_remote") and self.web_remote:
             self.web_remote.stop_server()
         self.replay_recorder.stop()
@@ -3753,6 +4047,8 @@ class LiteMixMainWindow(QMainWindow):
     def closeEvent(self, event):
         self._save_last_preset_silent()
         self.render_timer.stop()
+        if hasattr(self, "ext_output_win") and self.ext_output_win:
+            self.ext_output_win.close()
         if hasattr(self, "web_remote") and self.web_remote:
             self.web_remote.stop_server()
         self.replay_recorder.stop()

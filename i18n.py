@@ -138,13 +138,14 @@ HELP_HTML_DE = """
   </ul>
 </div>
 
-<h2> нижней 5. Untere Funktionsleiste (Footer-Icons)</h2>
+<h2>🧭 5. Untere Funktionsleiste (Footer-Icons)</h2>
 <div class="box">
   <ul>
     <li><span class="key">➕</span> – <b>Quelle hinzufügen:</b> Kamera, Video-Datei, Audio-Datei, Bild/Logo, Bauchbinde, Bildschirm/Fenster, Browser, Mikrofon, System-Audio, Letztes Replay, Highlights, Testbild.</li>
     <li><span class="key">💾</span> – <b>Quellen-Set verwalten:</b> Komplettes Set speichern, laden oder auf Standard zurücksetzen.</li>
-    <li><span class="key">⌨️</span> – <b>Tastenkürzel (Hotkeys):</b> Alle 27 Regie-Funktionen frei per Tastendruck belegen.</li>
+    <li><span class="key">⌨️</span> – <b>Tastenkürzel (Hotkeys):</b> Alle Regie-Funktionen frei per Tastendruck belegen.</li>
     <li><span class="key">📱</span> – <b>Web-Fernsteuerung (iPad / Tablet / Browser):</b> Zeigt den <b>QR-Code</b>, den Direkt-Link und das Sicherheits-Token an, um LiteMix HD drahtlos vom iPad aus zu bedienen.</li>
+    <li><span class="key">🖥️</span> – <b>Externe PROGRAM-Ausgabe (Fenster / Monitor, <span class="key">F11</span>):</b> Gibt das reine Live-Bild (<span class="key">PROGRAM</span>) entweder als <b>eigenes 16:9-Fenster</b> (z.&nbsp;B. für Zoom/Teams/Discord) oder <b>randlos im Vollbild auf einem angeschlossenen Monitor/Beamer/HDMI</b> aus (Doppelklick: Fenster ⇄ Vollbild, <span class="key">Esc</span>: Schließen).</li>
     <li><span class="key">🔄</span> – <b>GitHub-Update:</b> Prüft auf GitHub (<span class="key">uWiiiDev/LiteMix-HD</span>), ob eine neue Version vorliegt, und aktualisiert das Projekt automatisch.</li>
     <li><span class="key">🌐 DE/EN</span> – <b>Sprache wechseln:</b> Schaltet Oberfläche und Hilfe live zwischen Deutsch und Englisch um.</li>
     <li><span class="key">❓</span> – <b>Hilfe &amp; Handbuch:</b> Öffnet diese Funktionsübersicht.</li>
@@ -235,8 +236,9 @@ HELP_HTML_EN = """
   <ul>
     <li><span class="key">➕</span> – <b>Add Source:</b> Camera, Video File, Audio File, Image/Logo, Lower Third, Screen/Window (Wayland), Web Browser, Microphone, System Audio, Last Replay, Highlights, Test Pattern.</li>
     <li><span class="key">💾</span> – <b>Manage Set:</b> Save, load, or reset source sets.</li>
-    <li><span class="key">⌨️</span> – <b>Keyboard Shortcuts:</b> Freely assign hotkeys to all 27 switcher actions.</li>
+    <li><span class="key">⌨️</span> – <b>Keyboard Shortcuts:</b> Freely assign hotkeys to all switcher actions.</li>
     <li><span class="key">📱</span> – <b>Web Remote Control (iPad / Tablet / Browser):</b> Displays the <b>QR code</b>, direct link, and security token to control LiteMix HD wirelessly from an iPad or browser.</li>
+    <li><span class="key">🖥️</span> – <b>External PROGRAM Output (Window / Monitor, <span class="key">F11</span>):</b> Outputs the clean live <span class="key">PROGRAM</span> feed either as a <b>separate 16:9 window</b> (e.g. for Zoom/Teams/Discord screen sharing) or <b>borderless fullscreen on any connected monitor/projector/HDMI</b> (Double-click: Window ⇄ Fullscreen, <span class="key">Esc</span>: Close).</li>
     <li><span class="key">🔄</span> – <b>GitHub Updater:</b> Checks GitHub (<span class="key">uWiiiDev/LiteMix-HD</span>) for newer versions and updates the application automatically.</li>
     <li><span class="key">🌐 DE/EN</span> – <b>Switch Language:</b> Toggles the UI and Help language live between German and English.</li>
     <li><span class="key">❓</span> – <b>Help &amp; Manual:</b> Opens this comprehensive reference guide.</li>
