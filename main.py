@@ -1076,6 +1076,7 @@ class InputTileWidget(QFrame):
         self.lbl_aud_tag = None
         self.btn_cfg = None
         self.btn_flip = None
+        self.btn_color = None
         self.btn_prev_hl = None
         self.btn_next_hl = None
         self._media_duration = 0.0
@@ -1085,15 +1086,24 @@ class InputTileWidget(QFrame):
         layout.setContentsMargins(4, 3, 4, 3)
         layout.setSpacing(2)
 
-        # Header with number & title + close button
+        # Header with number & title + color/PTZ button (🎨) + close button (✕)
         top_row = QHBoxLayout()
-        self.title_lbl = QLabel(f"{index + 1}: {inp.name[:18]}")
+        top_row.setSpacing(2)
+        self.title_lbl = QLabel(f"{index + 1}: {inp.name[:16]}")
         self.title_lbl.setStyleSheet("font-weight: bold; font-size: 10px;")
+        top_row.addWidget(self.title_lbl, 1)
+
+        if not isinstance(inp, AudioInputBase):
+            self.btn_color = QPushButton("🎨")
+            self.btn_color.setFixedSize(16, 16)
+            self.btn_color.setStyleSheet("padding: 0px; font-size: 8px; background: #222938;")
+            self.btn_color.clicked.connect(lambda: self.main_win.edit_image_adjustments(self.inp))
+            top_row.addWidget(self.btn_color)
+
         btn_close = QPushButton("✕")
         btn_close.setFixedSize(16, 16)
         btn_close.setStyleSheet("padding: 0px; font-size: 9px; background: #322026; color: #ff8080;")
         btn_close.clicked.connect(lambda: self.main_win.remove_input(self.index))
-        top_row.addWidget(self.title_lbl, 1)
         top_row.addWidget(btn_close)
         layout.addLayout(top_row)
 
@@ -1413,6 +1423,13 @@ class InputTileWidget(QFrame):
                 )
             else:
                 self.btn_flip.setToolTip(tr("Kamera horizontal spiegeln (Flip)", "Flip camera horizontally (Mirror)"))
+        if self.btn_color:
+            self.btn_color.setToolTip(
+                tr(
+                    "🎨 Bildkorrektur & Digital-Zoom (Helligkeit, Kontrast, Sättigung, Farbton, Zoom/Zuschnitt)",
+                    "🎨 Color Correction & Digital Zoom (Brightness, Contrast, Saturation, Hue, Zoom/Crop)",
+                )
+            )
         if self.btn_play_pause:
             self.btn_play_pause.setToolTip(tr("Start / Pause", "Play / Pause"))
         if self.btn_stop_media:
@@ -1783,7 +1800,7 @@ class InputTileWidget(QFrame):
 
     def set_index(self, index: int):
         self.index = index
-        self.title_lbl.setText(f"{index + 1}: {self.inp.name[:18]}")
+        self.title_lbl.setText(f"{index + 1}: {self.inp.name[:16]}")
 
     def update_tile(self, is_prv: bool, is_pgm: bool, is_ovl1: bool, is_ovl2: bool):
         if is_pgm:
@@ -1792,6 +1809,13 @@ class InputTileWidget(QFrame):
             self.setStyleSheet("QFrame#PanelFrame { background-color: #16261d; border: 2px solid #20d660; border-radius: 5px; }")
         else:
             self.setStyleSheet("QFrame#PanelFrame { background-color: #1c2029; border: 1px solid #2b3140; border-radius: 5px; }")
+
+        if self.btn_color and hasattr(self.inp, "has_custom_image_adjustments"):
+            has_adj = self.inp.has_custom_image_adjustments()
+            self.btn_color.setStyleSheet(
+                "padding: 0px; font-size: 8px; background: #1e6b9e; border: 1px solid #40a8f0;"
+                if has_adj else "padding: 0px; font-size: 8px; background: #222938;"
+            )
 
         self.btn_ovl1.setStyleSheet(
             "padding: 1px 3px; font-size: 9px; background-color: #0088cc; color: white;"
@@ -1889,7 +1913,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.7.0"
+    APP_VERSION = "0.8.0"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
@@ -4125,6 +4149,235 @@ class LiteMixMainWindow(QMainWindow):
                 idx = self.inputs.index(ss)
                 if 0 <= idx < len(self.input_tiles):
                     self.input_tiles[idx].set_index(idx)
+
+    def edit_image_adjustments(self, inp: BaseInput):
+        """Opens the per-source Broadcast Color Correction & Digital PTZ (Zoom/Pan/Flip) dialog."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(
+            tr(
+                f"🎨 Bildkorrektur & Kamera-Zoom – {inp.name}",
+                f"🎨 Color Correction & Digital Zoom – {inp.name}",
+            )
+        )
+        dlg.resize(680, 560)
+        dlg.setStyleSheet(DARK_STYLESHEET)
+
+        orig_state = {
+            "brightness": inp.brightness,
+            "contrast": inp.contrast,
+            "saturation": inp.saturation,
+            "hue": inp.hue,
+            "crop_zoom": inp.crop_zoom,
+            "crop_x": inp.crop_x,
+            "crop_y": inp.crop_y,
+            "flip_h": inp.flip_h,
+            "flip_v": inp.flip_v,
+        }
+
+        root_v = QVBoxLayout(dlg)
+        root_v.setContentsMargins(10, 10, 10, 10)
+        root_v.setSpacing(6)
+
+        # Top row: Quick Broadcast Presets + Reset All
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel(tr("<b>Schnell-Preset:</b>", "<b>Quick Preset:</b>")))
+        combo_preset = QComboBox()
+        combo_preset.addItem(tr("— Eigene Einstellung / Preset wählen —", "— Custom / Choose Preset —"), None)
+        for p_key, p_lbl, p_vals in BaseInput.get_color_presets():
+            combo_preset.addItem(p_lbl, p_vals)
+        preset_row.addWidget(combo_preset, 1)
+
+        btn_reset = QPushButton(tr("↺ Alles zurücksetzen", "↺ Reset All"))
+        btn_reset.setToolTip(
+            tr(
+                "Alle Farbwerte, Zoom, Ausschnitt und Spiegelung auf Standard zurücksetzen",
+                "Reset all color values, zoom, pan, and flip to defaults",
+            )
+        )
+        preset_row.addWidget(btn_reset)
+        root_v.addLayout(preset_row)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(5)
+
+        def _make_slider_row(row_idx: int, title_txt: str, min_v: int, max_v: int, cur_v: int, fmt_fn):
+            lbl_t = QLabel(title_txt)
+            sld = QSlider(Qt.Orientation.Horizontal)
+            sld.setRange(min_v, max_v)
+            sld.setValue(cur_v)
+            lbl_v = QLabel(fmt_fn(cur_v))
+            lbl_v.setFixedWidth(56)
+            lbl_v.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            lbl_v.setStyleSheet("font-family: monospace; font-weight: bold; color: #38b6ff;")
+            grid.addWidget(lbl_t, row_idx, 0)
+            grid.addWidget(sld, row_idx, 1)
+            grid.addWidget(lbl_v, row_idx, 2)
+            return sld, lbl_v
+
+        s_bright, l_bright = _make_slider_row(
+            0, tr("☀️ Helligkeit:", "☀️ Brightness:"), -100, 100, int(round(inp.brightness * 100)),
+            lambda v: f"{v:+d}%"
+        )
+        s_contrast, l_contrast = _make_slider_row(
+            1, tr("🌗 Kontrast:", "🌗 Contrast:"), 0, 200, int(round(inp.contrast * 100)),
+            lambda v: f"{v}%"
+        )
+        s_sat, l_sat = _make_slider_row(
+            2, tr("🎨 Farbsättigung:", "🎨 Saturation:"), 0, 200, int(round(inp.saturation * 100)),
+            lambda v: f"{v}%"
+        )
+        s_hue, l_hue = _make_slider_row(
+            3, tr("🌡️ Farbton / Wärme:", "🌡️ Hue / Tint:"), -100, 100, int(round(inp.hue * 100)),
+            lambda v: f"{v:+d}%"
+        )
+        s_zoom, l_zoom = _make_slider_row(
+            4, tr("🔍 Digital-Zoom (Zuschnitt):", "🔍 Digital Zoom (Crop):"), 100, 300, int(round(inp.crop_zoom * 100)),
+            lambda v: f"{v / 100.0:.2f}×"
+        )
+        s_pan_x, l_pan_x = _make_slider_row(
+            5, tr("↔️ Bildausschnitt Links/Rechts:", "↔️ Pan Left/Right (X):"), -100, 100, int(round(inp.crop_x * 100)),
+            lambda v: f"{v:+d}%"
+        )
+        s_pan_y, l_pan_y = _make_slider_row(
+            6, tr("↕️ Bildausschnitt Oben/Unten:", "↕️ Pan Up/Down (Y):"), -100, 100, int(round(inp.crop_y * 100)),
+            lambda v: f"{v:+d}%"
+        )
+        root_v.addLayout(grid)
+
+        flip_row = QHBoxLayout()
+        chk_flip_h = QCheckBox(tr("↔️ Horizontal spiegeln (Links ⇄ Rechts)", "↔️ Flip Horizontally (Mirror)"))
+        chk_flip_h.setChecked(inp.flip_h)
+        chk_flip_v = QCheckBox(tr("↕️ Vertikal spiegeln (Oben ⇄ Unten)", "↕️ Flip Vertically (Upside-Down)"))
+        chk_flip_v.setChecked(inp.flip_v)
+        flip_row.addWidget(chk_flip_h)
+        flip_row.addSpacing(16)
+        flip_row.addWidget(chk_flip_v)
+        flip_row.addStretch()
+        root_v.addLayout(flip_row)
+
+        # Live 16:9 Preview inside dialog
+        preview_lbl = QLabel()
+        preview_lbl.setFixedSize(448, 252)
+        preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_lbl.setStyleSheet(
+            "background-color: #0e121a; border: 1px solid #323c52; border-radius: 5px;"
+        )
+        prv_wrap = QHBoxLayout()
+        prv_wrap.addStretch()
+        prv_wrap.addWidget(preview_lbl)
+        prv_wrap.addStretch()
+        root_v.addLayout(prv_wrap, 1)
+
+        def _refresh_preview_only():
+            inp.update()
+            img = inp.get_frame()
+            if not img.isNull():
+                scaled = img.scaled(
+                    442, 246,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                preview_lbl.setPixmap(QPixmap.fromImage(scaled))
+
+        def _apply_from_controls():
+            vb = s_bright.value()
+            vc = s_contrast.value()
+            vs = s_sat.value()
+            vh = s_hue.value()
+            vz = s_zoom.value()
+            vx = s_pan_x.value()
+            vy = s_pan_y.value()
+
+            l_bright.setText(f"{vb:+d}%")
+            l_contrast.setText(f"{vc}%")
+            l_sat.setText(f"{vs}%")
+            l_hue.setText(f"{vh:+d}%")
+            l_zoom.setText(f"{vz / 100.0:.2f}×")
+            l_pan_x.setText(f"{vx:+d}%")
+            l_pan_y.setText(f"{vy:+d}%")
+
+            inp.set_image_adjustments(
+                brightness=vb / 100.0,
+                contrast=vc / 100.0,
+                saturation=vs / 100.0,
+                hue=vh / 100.0,
+                crop_zoom=vz / 100.0,
+                crop_x=vx / 100.0,
+                crop_y=vy / 100.0,
+                flip_h=chk_flip_h.isChecked(),
+                flip_v=chk_flip_v.isChecked(),
+            )
+            _refresh_preview_only()
+
+        def _on_preset_selected(idx: int):
+            vals = combo_preset.itemData(idx)
+            if not vals:
+                return
+            b, c, s, h = vals
+            for w in (s_bright, s_contrast, s_sat, s_hue):
+                w.blockSignals(True)
+            s_bright.setValue(int(round(b * 100)))
+            s_contrast.setValue(int(round(c * 100)))
+            s_sat.setValue(int(round(s * 100)))
+            s_hue.setValue(int(round(h * 100)))
+            for w in (s_bright, s_contrast, s_sat, s_hue):
+                w.blockSignals(False)
+            _apply_from_controls()
+
+        def _on_reset_all():
+            for w in (s_bright, s_contrast, s_sat, s_hue, s_zoom, s_pan_x, s_pan_y, chk_flip_h, chk_flip_v, combo_preset):
+                w.blockSignals(True)
+            combo_preset.setCurrentIndex(0)
+            s_bright.setValue(0)
+            s_contrast.setValue(100)
+            s_sat.setValue(100)
+            s_hue.setValue(0)
+            s_zoom.setValue(100)
+            s_pan_x.setValue(0)
+            s_pan_y.setValue(0)
+            chk_flip_h.setChecked(False)
+            chk_flip_v.setChecked(False)
+            for w in (s_bright, s_contrast, s_sat, s_hue, s_zoom, s_pan_x, s_pan_y, chk_flip_h, chk_flip_v, combo_preset):
+                w.blockSignals(False)
+            _apply_from_controls()
+
+        combo_preset.currentIndexChanged.connect(_on_preset_selected)
+        btn_reset.clicked.connect(_on_reset_all)
+        for sld in (s_bright, s_contrast, s_sat, s_hue, s_zoom, s_pan_x, s_pan_y):
+            sld.valueChanged.connect(_apply_from_controls)
+        chk_flip_h.toggled.connect(_apply_from_controls)
+        chk_flip_v.toggled.connect(_apply_from_controls)
+
+        dlg_timer = QTimer(dlg)
+        dlg_timer.timeout.connect(_refresh_preview_only)
+        dlg_timer.start(66)
+        _refresh_preview_only()
+
+        btn_row = QHBoxLayout()
+        btn_cancel = QPushButton(tr("Abbrechen", "Cancel"))
+        btn_ok = QPushButton(tr("✓ Speichern & Übernehmen", "✓ Save & Apply"))
+        btn_ok.setObjectName("AddInputBtn")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_ok.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        root_v.addLayout(btn_row)
+
+        if dlg.exec():
+            dlg_timer.stop()
+            _apply_from_controls()
+            self._save_last_preset_silent()
+            self.lbl_rec_status.setText(
+                tr(
+                    f"🎨 Bildkorrektur & Zoom gespeichert für: {inp.name}",
+                    f"🎨 Color correction & zoom saved for: {inp.name}",
+                )
+            )
+        else:
+            dlg_timer.stop()
+            inp.set_image_adjustments(**orig_state)
 
     # ================= SWITCHING & TRANSITIONS =================
     @classmethod

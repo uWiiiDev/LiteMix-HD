@@ -35,6 +35,18 @@ Gst.init(None)
 class BaseInput:
     """Base class for all LiteMix video and audio input sources."""
 
+    @classmethod
+    def get_color_presets(cls) -> list[tuple[str, str, tuple[float, float, float, float]]]:
+        """Returns (preset_key, label, (brightness, contrast, saturation, hue))."""
+        return [
+            ("neutral", tr("↺ Standard (Neutral / Unverändert)", "↺ Default (Neutral / Unchanged)"), (0.0, 1.0, 1.0, 0.0)),
+            ("bright_cam", tr("☀️ Webcam Aufhellen & Klarheit (+15% Hell, +20% Kontrast)", "☀️ Brighten Webcam & Clarity (+15% Bright, +20% Contrast)"), (0.15, 1.20, 1.10, 0.0)),
+            ("warm_studio", tr("🌅 Warmes Studiolicht (Weich & Warm)", "🌅 Warm Studio Light (Soft & Warm)"), (0.05, 1.12, 1.18, -0.06)),
+            ("cool_clean", tr("❄️ Kühles Tageslicht / Gelbstich-Korrektur", "❄️ Cool Daylight / Yellow Cast Fix"), (0.04, 1.10, 1.05, 0.08)),
+            ("vivid", tr("🎨 Kräftige Broadcast-Farben (+20% Kontrast, +35% Sättigung)", "🎨 Vivid Broadcast Colors (+20% Contrast, +35% Saturation)"), (0.02, 1.20, 1.35, 0.0)),
+            ("bw", tr("🎬 Schwarz-Weiß / Monochrom (0% Sättigung, +25% Kontrast)", "🎬 Black & White / Monochrome (0% Saturation, +25% Contrast)"), (0.0, 1.25, 0.0, 0.0)),
+        ]
+
     def __init__(self, name: str, width: int = 1280, height: int = 720):
         self.name = name
         self.width = width
@@ -44,13 +56,181 @@ class BaseInput:
         self.muted = False
         self.vu_level = 0.0  # 0.0 to 1.0 for VU meters
         self.active = True
+
+        # Per-source image color correction & digital PTZ (Zoom / Pan / Flip)
+        self.brightness = 0.0   # -1.0 to +1.0 (default 0.0)
+        self.contrast = 1.0     #  0.0 to  2.0 (default 1.0)
+        self.saturation = 1.0   #  0.0 to  2.0 (default 1.0)
+        self.hue = 0.0          # -1.0 to +1.0 (default 0.0)
+        self.crop_zoom = 1.0    #  1.0 to  3.0 (default 1.0 = 100%)
+        self.crop_x = 0.0       # -1.0 to +1.0 (horizontal pan when zoomed)
+        self.crop_y = 0.0       # -1.0 to +1.0 (vertical pan when zoomed)
+        self.flip_h = False
+        self.flip_v = False
+        self._adj_revision = 0
+        self._cached_src_key = None
+        self._cached_adj_rev = -1
+        self._cached_out_frame = None
+
         self._lock = threading.Lock()
         self._frame = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
         self._frame.fill(QColor(20, 20, 25))
 
+    def has_custom_image_adjustments(self) -> bool:
+        return (
+            abs(self.brightness) > 0.005
+            or abs(self.contrast - 1.0) > 0.005
+            or abs(self.saturation - 1.0) > 0.005
+            or abs(self.hue) > 0.005
+            or self.crop_zoom > 1.005
+            or self.flip_h
+            or self.flip_v
+        )
+
+    def reset_image_adjustments(self):
+        self.set_image_adjustments(
+            brightness=0.0,
+            contrast=1.0,
+            saturation=1.0,
+            hue=0.0,
+            crop_zoom=1.0,
+            crop_x=0.0,
+            crop_y=0.0,
+            flip_h=False,
+            flip_v=False,
+        )
+
+    def set_image_adjustments(
+        self,
+        brightness: float | None = None,
+        contrast: float | None = None,
+        saturation: float | None = None,
+        hue: float | None = None,
+        crop_zoom: float | None = None,
+        crop_x: float | None = None,
+        crop_y: float | None = None,
+        flip_h: bool | None = None,
+        flip_v: bool | None = None,
+    ):
+        if brightness is not None:
+            self.brightness = max(-1.0, min(1.0, float(brightness)))
+        if contrast is not None:
+            self.contrast = max(0.0, min(2.0, float(contrast)))
+        if saturation is not None:
+            self.saturation = max(0.0, min(2.0, float(saturation)))
+        if hue is not None:
+            self.hue = max(-1.0, min(1.0, float(hue)))
+        if crop_zoom is not None:
+            self.crop_zoom = max(1.0, min(3.0, float(crop_zoom)))
+        if crop_x is not None:
+            self.crop_x = max(-1.0, min(1.0, float(crop_x)))
+        if crop_y is not None:
+            self.crop_y = max(-1.0, min(1.0, float(crop_y)))
+        if flip_h is not None:
+            self.flip_h = bool(flip_h)
+        if flip_v is not None:
+            self.flip_v = bool(flip_v)
+        self._adj_revision += 1
+        if hasattr(self, "_apply_videobalance"):
+            self._apply_videobalance()
+
+    def _needs_post_frame_transform(self) -> bool:
+        if self.crop_zoom > 1.005 or self.flip_h or self.flip_v:
+            return True
+        # Non-GStreamer inputs (or GStreamer inputs paused before new sample arrives) apply color adjustments here
+        if not getattr(self, "_has_gst_vbal", False) or getattr(self, "_vbal_dirty_while_paused", False):
+            if (
+                abs(self.brightness) > 0.005
+                or abs(self.contrast - 1.0) > 0.005
+                or abs(self.saturation - 1.0) > 0.005
+                or abs(self.hue) > 0.005
+            ):
+                return True
+        return False
+
+    def _transform_frame(self, raw: QImage) -> QImage:
+        if raw.isNull():
+            return raw
+        w, h = self.width, self.height
+        out = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
+        out.fill(Qt.GlobalColor.transparent)
+
+        # Calculate source crop rectangle for digital zoom & pan
+        rw, rh = raw.width(), raw.height()
+        z = max(1.0, min(3.0, self.crop_zoom))
+        sw = rw / z
+        sh = rh / z
+        max_dx = (rw - sw) * 0.5
+        max_dy = (rh - sh) * 0.5
+        sx = max_dx + (self.crop_x * max_dx)
+        sy = max_dy + (self.crop_y * max_dy)
+
+        p = QPainter(out)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        if self.flip_h or self.flip_v:
+            p.translate(w if self.flip_h else 0, h if self.flip_v else 0)
+            p.scale(-1.0 if self.flip_h else 1.0, -1.0 if self.flip_v else 1.0)
+        p.drawImage(QRectF(0, 0, w, h), raw, QRectF(sx, sy, sw, sh))
+        p.resetTransform()
+
+        # Lightweight software color grading for non-GStreamer sources (or paused GStreamer frames)
+        if not getattr(self, "_has_gst_vbal", False) or getattr(self, "_vbal_dirty_while_paused", False):
+            if self.saturation < 0.99:
+                gray = out.convertToFormat(QImage.Format.Format_Grayscale8).convertToFormat(
+                    QImage.Format.Format_ARGB32_Premultiplied
+                )
+                p.setOpacity(1.0 - max(0.0, self.saturation))
+                p.drawImage(0, 0, gray)
+                p.setOpacity(1.0)
+            elif self.saturation > 1.01:
+                boost = min(0.55, (self.saturation - 1.0) * 0.45)
+                p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Overlay)
+                p.setOpacity(boost)
+                p.drawImage(0, 0, out)
+                p.setOpacity(1.0)
+                p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
+            if abs(self.contrast - 1.0) > 0.01:
+                if self.contrast > 1.0:
+                    c_alpha = min(0.75, (self.contrast - 1.0) * 0.65)
+                    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Overlay)
+                    p.setOpacity(c_alpha)
+                    p.drawImage(0, 0, out)
+                    p.setOpacity(1.0)
+                    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+                else:
+                    c_fade = int((1.0 - self.contrast) * 140)
+                    p.fillRect(0, 0, w, h, QColor(128, 128, 128, max(0, min(200, c_fade))))
+
+            if abs(self.brightness) > 0.01:
+                b_alpha = int(min(1.0, abs(self.brightness)) * 185)
+                if self.brightness > 0:
+                    p.fillRect(0, 0, w, h, QColor(255, 255, 255, b_alpha))
+                else:
+                    p.fillRect(0, 0, w, h, QColor(0, 0, 0, b_alpha))
+
+            if abs(self.hue) > 0.01:
+                h_alpha = int(min(1.0, abs(self.hue)) * 65)
+                # Negative hue = warm amber studio tint; Positive hue = cool cyan/blue daylight tint
+                t_col = QColor(255, 165, 60, h_alpha) if self.hue < 0 else QColor(65, 175, 255, h_alpha)
+                p.fillRect(0, 0, w, h, t_col)
+
+        p.end()
+        return out
+
     def get_frame(self) -> QImage:
         with self._lock:
-            return self._frame
+            raw = self._frame
+        if not self._needs_post_frame_transform():
+            return raw
+        ck = raw.cacheKey()
+        if ck == self._cached_src_key and self._adj_revision == self._cached_adj_rev and self._cached_out_frame is not None:
+            return self._cached_out_frame
+        out = self._transform_frame(raw)
+        self._cached_src_key = ck
+        self._cached_adj_rev = self._adj_revision
+        self._cached_out_frame = out
+        return out
 
     def set_volume(self, vol: float):
         self.volume = max(0.0, min(1.5, vol))
@@ -1623,6 +1803,9 @@ class GStreamerBaseInput(BaseInput):
         self.pipeline = None
         self.vsink = None
         self.vol_element = None
+        self.vbal_element = None
+        self._has_gst_vbal = False
+        self._vbal_dirty_while_paused = False
         self.loop_enabled = False
         self.return_to_preview_on_eos = False
         self.eos_return_pending = False
@@ -1630,6 +1813,19 @@ class GStreamerBaseInput(BaseInput):
         self.playback_rate = 1.0  # 1.0 = real-time, 0.5 = 50% slow-mo, 0.25 = 25% super slow-mo
         self._pending_rate_apply = False
         self.afv_gain = 1.0  # Audio-Follow-Video factor (1.0 = live/active, 0.0 = muted in Preview/grid)
+
+    def _apply_videobalance(self):
+        if self.vbal_element is not None:
+            try:
+                self.vbal_element.set_property("brightness", float(self.brightness))
+                self.vbal_element.set_property("contrast", float(self.contrast))
+                self.vbal_element.set_property("saturation", float(self.saturation))
+                self.vbal_element.set_property("hue", float(self.hue))
+                self._has_gst_vbal = True
+                if self.paused:
+                    self._vbal_dirty_while_paused = True
+            except Exception:
+                pass
 
     def _apply_effective_volume(self):
         eff = 0.0 if (self.muted or self.paused) else (self.volume * self.afv_gain)
@@ -1682,6 +1878,11 @@ class GStreamerBaseInput(BaseInput):
         if not self.vol_element:
             self.vol_element = self.pipeline.get_by_name("avol")
 
+        if not self.vbal_element:
+            self.vbal_element = self.pipeline.get_by_name("vbal")
+        if self.vbal_element:
+            self._apply_videobalance()
+
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message", self._on_bus_message)
@@ -1709,9 +1910,11 @@ class GStreamerBaseInput(BaseInput):
         return Gst.FlowReturn.OK
 
     def _on_new_sample(self, sink):
+        self._vbal_dirty_while_paused = False
         return self._extract_sample_frame(sink.emit("pull-sample"))
 
     def _on_new_preroll(self, sink):
+        self._vbal_dirty_while_paused = False
         return self._extract_sample_frame(sink.emit("pull-preroll"))
 
     def update(self):
@@ -1852,7 +2055,7 @@ class VideoFileInput(GStreamerBaseInput):
             self.pipeline.set_property("flags", 0x00000003)
 
             vbin = Gst.parse_bin_from_description(
-                f"videoconvert n-threads=2 ! videoscale method=nearest-neighbour ! "
+                f"videoconvert n-threads=2 ! videobalance name=vbal ! videoscale method=nearest-neighbour ! "
                 f"video/x-raw,format=BGRA,width={width},height={height} ! "
                 f"appsink name=vsink emit-signals=true max-buffers=2 drop=true sync=true qos=true",
                 True
@@ -1867,6 +2070,7 @@ class VideoFileInput(GStreamerBaseInput):
             self.pipeline.set_property("audio-sink", abin)
 
             self.vsink = vbin.get_by_name("vsink")
+            self.vbal_element = vbin.get_by_name("vbal")
             self.vol_element = abin.get_by_name("avol")
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PAUSED)
@@ -1887,7 +2091,7 @@ class V4L2CameraInput(GStreamerBaseInput):
 
         flip_method = "horizontal-flip" if mirror else "none"
         pipe_str = (
-            f'v4l2src device="{device}" ! videoconvert ! '
+            f'v4l2src device="{device}" ! videoconvert ! videobalance name=vbal ! '
             f'videoflip name=vflip method={flip_method} ! videoscale ! '
             f'video/x-raw,format=BGRA,width={width},height={height} ! '
             f'appsink name=vsink emit-signals=true max-buffers=2 drop=true sync=false'
@@ -1895,6 +2099,7 @@ class V4L2CameraInput(GStreamerBaseInput):
         try:
             self.pipeline = Gst.parse_launch(pipe_str)
             self.flip_element = self.pipeline.get_by_name("vflip")
+            self.vbal_element = self.pipeline.get_by_name("vbal")
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PLAYING)
         except Exception as e:
@@ -2032,12 +2237,13 @@ class WaylandPortalInput(GStreamerBaseInput):
     def _start_pipewire_pipeline(self, fd: int, node_id: int):
         pipe_str = (
             f'pipewiresrc fd={fd} path={node_id} do-timestamp=true ! '
-            f'videoconvert ! videoscale ! '
+            f'videoconvert ! videobalance name=vbal ! videoscale ! '
             f'video/x-raw,format=BGRA,width={self.width},height={self.height} ! '
             f'appsink name=vsink emit-signals=true max-buffers=2 drop=true sync=false'
         )
         try:
             self.pipeline = Gst.parse_launch(pipe_str)
+            self.vbal_element = self.pipeline.get_by_name("vbal")
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PLAYING)
         except Exception as e:
@@ -2399,13 +2605,14 @@ class ReplaySourceInput(GStreamerBaseInput):
             self.pipeline.set_property("flags", 0x00000001)  # Video-only decoding (optimal for smooth slow motion)
 
             vbin = Gst.parse_bin_from_description(
-                f"videoconvert n-threads=2 ! videoscale method=nearest-neighbour ! "
+                f"videoconvert n-threads=2 ! videobalance name=vbal ! videoscale method=nearest-neighbour ! "
                 f"video/x-raw,format=BGRA,width={self.width},height={self.height} ! "
                 f"appsink name=vsink emit-signals=true max-buffers=2 drop=true sync=true qos=true",
                 True,
             )
             self.pipeline.set_property("video-sink", vbin)
             self.vsink = vbin.get_by_name("vsink")
+            self.vbal_element = vbin.get_by_name("vbal")
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PAUSED)
         except Exception as e:
@@ -2553,13 +2760,14 @@ class HighlightsInput(GStreamerBaseInput):
             self.pipeline.set_property("flags", 0x00000001)
 
             vbin = Gst.parse_bin_from_description(
-                f"videoconvert n-threads=2 ! videoscale method=nearest-neighbour ! "
+                f"videoconvert n-threads=2 ! videobalance name=vbal ! videoscale method=nearest-neighbour ! "
                 f"video/x-raw,format=BGRA,width={self.width},height={self.height} ! "
                 f"appsink name=vsink emit-signals=true max-buffers=2 drop=true sync=true qos=true",
                 True,
             )
             self.pipeline.set_property("video-sink", vbin)
             self.vsink = vbin.get_by_name("vsink")
+            self.vbal_element = vbin.get_by_name("vbal")
             self._attach_bus_and_sink()
             self.pipeline.set_state(Gst.State.PLAYING if auto_play else Gst.State.PAUSED)
         except Exception as e:
@@ -2584,6 +2792,15 @@ def serialize_input(inp: BaseInput) -> dict:
         "name": inp.name,
         "volume": round(float(inp.volume), 3),
         "muted": bool(inp.muted),
+        "brightness": round(float(inp.brightness), 3),
+        "contrast": round(float(inp.contrast), 3),
+        "saturation": round(float(inp.saturation), 3),
+        "hue": round(float(inp.hue), 3),
+        "crop_zoom": round(float(inp.crop_zoom), 3),
+        "crop_x": round(float(inp.crop_x), 3),
+        "crop_y": round(float(inp.crop_y), 3),
+        "flip_h": bool(inp.flip_h),
+        "flip_v": bool(inp.flip_v),
     }
     if isinstance(inp, TestPatternInput):
         d["pattern_style"] = inp.pattern_style
@@ -2753,6 +2970,17 @@ def deserialize_input(data: dict, width: int = 1280, height: int = 720) -> BaseI
     if inp is not None:
         inp.set_volume(float(data.get("volume", 1.0)))
         inp.set_muted(bool(data.get("muted", False)))
+        inp.set_image_adjustments(
+            brightness=float(data.get("brightness", 0.0)),
+            contrast=float(data.get("contrast", 1.0)),
+            saturation=float(data.get("saturation", 1.0)),
+            hue=float(data.get("hue", 0.0)),
+            crop_zoom=float(data.get("crop_zoom", 1.0)),
+            crop_x=float(data.get("crop_x", 0.0)),
+            crop_y=float(data.get("crop_y", 0.0)),
+            flip_h=bool(data.get("flip_h", False)),
+            flip_v=bool(data.get("flip_v", False)),
+        )
         if "loop_enabled" in data and hasattr(inp, "loop_enabled"):
             inp.loop_enabled = bool(data["loop_enabled"])
         if "return_to_preview_on_eos" in data and hasattr(inp, "return_to_preview_on_eos"):
