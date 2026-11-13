@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QPushButton, QLabel, QSlider, QSpinBox, QFileDialog,
     QInputDialog, QFrame, QScrollArea, QMessageBox, QDialog, QFormLayout,
-    QLineEdit, QMenu, QComboBox, QKeySequenceEdit
+    QLineEdit, QMenu, QComboBox, QKeySequenceEdit, QSizePolicy
 )
 
 from inputs import (
@@ -857,7 +857,14 @@ class ExternalProgramOutputWindow(QWidget):
     """
 
     def __init__(self, main_win):
-        super().__init__(None, Qt.WindowType.Window)
+        super().__init__(
+            None,
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint,
+        )
         self.main_win = main_win
         self.frame_img: QImage | None = None
         self.mode: str = "window"  # "window" or "fullscreen"
@@ -1585,7 +1592,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.1.0"
+    APP_VERSION = "0.4.1"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
@@ -1664,6 +1671,7 @@ class LiteMixMainWindow(QMainWindow):
         super().__init__()
         self._load_local_version_metadata()
         self.setWindowTitle(f"LiteMix HD v{self.APP_VERSION}")
+        self.setMinimumSize(820, 500)
         self.resize(1120, 660)
         self.setStyleSheet(DARK_STYLESHEET)
 
@@ -1713,8 +1721,8 @@ class LiteMixMainWindow(QMainWindow):
         self._last_wall_time = time.time()
         self._cpu_percent = 0.0
 
-        # External PROGRAM output window (Projector / Fullscreen on Monitor)
-        self.ext_output_win = ExternalProgramOutputWindow(self)
+        # External PROGRAM output window (Projector / Fullscreen on Monitor) - created lazily on demand
+        self.ext_output_win: ExternalProgramOutputWindow | None = None
         self._last_ext_output_mode = "window"
         self._last_ext_output_screen = 1 if len(QApplication.screens()) > 1 else 0
 
@@ -1991,12 +1999,14 @@ class LiteMixMainWindow(QMainWindow):
 
         self.lbl_rec_status = QLabel(tr("Bereit (GPU: h264_vaapi)", "Ready (GPU: h264_vaapi)"))
         self.lbl_rec_status.setStyleSheet("color: #98a2b8; font-size: 10px;")
-        foot_layout.addWidget(self.lbl_rec_status)
-
-        foot_layout.addStretch()
+        # Use Ignored horizontal size policy so long status strings never increase the main window's minimum width
+        self.lbl_rec_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.lbl_rec_status.setMinimumWidth(60)
+        foot_layout.addWidget(self.lbl_rec_status, 1)
 
         self.lbl_stats = QLabel("720p30 | CPU: -- %")
         self.lbl_stats.setStyleSheet("color: #00d890; font-weight: bold; font-size: 11px;")
+        self.lbl_stats.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         foot_layout.addWidget(self.lbl_stats)
 
         root_layout.addWidget(footer)
@@ -3628,6 +3638,8 @@ class LiteMixMainWindow(QMainWindow):
         return bool(hasattr(self, "ext_output_win") and self.ext_output_win and self.ext_output_win.isVisible())
 
     def open_external_program_window(self):
+        was_maximized = self.isMaximized()
+        saved_geom = self.geometry()
         if not hasattr(self, "ext_output_win") or not self.ext_output_win:
             self.ext_output_win = ExternalProgramOutputWindow(self)
         self._last_ext_output_mode = "window"
@@ -3636,12 +3648,18 @@ class LiteMixMainWindow(QMainWindow):
         self._refresh_ext_output_button_style()
         self.lbl_rec_status.setText(
             tr(
-                "🪟 PROGRAM-Ausgabe als eigenes Fenster geöffnet (Doppelklick: Vollbild, Esc: Schließen)",
-                "🪟 PROGRAM output opened in separate window (Double-click: Fullscreen, Esc: Close)",
+                "🪟 PROGRAM-Fensterausgabe aktiv (Doppelklick: Vollbild, Esc: Schließen)",
+                "🪟 PROGRAM window output active (Double-click: Fullscreen, Esc: Close)",
             )
         )
+        if was_maximized and not self.isMaximized():
+            self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+        elif not was_maximized and self.geometry() != saved_geom:
+            self.setGeometry(saved_geom)
 
     def open_external_program_fullscreen(self, screen_idx: int = 0):
+        was_maximized = self.isMaximized()
+        saved_geom = self.geometry()
         if not hasattr(self, "ext_output_win") or not self.ext_output_win:
             self.ext_output_win = ExternalProgramOutputWindow(self)
         screens = QApplication.screens()
@@ -3654,10 +3672,14 @@ class LiteMixMainWindow(QMainWindow):
         scr_name = screens[screen_idx].name() if screens else f"#{screen_idx + 1}"
         self.lbl_rec_status.setText(
             tr(
-                f"🖥️ PROGRAM-Vollbild aktiv auf Monitor {screen_idx + 1} ({scr_name}) – Esc zum Schließen",
-                f"🖥️ PROGRAM fullscreen active on Monitor {screen_idx + 1} ({scr_name}) – Esc to close",
+                f"🖥️ PROGRAM-Vollbild aktiv auf Monitor {screen_idx + 1} ({scr_name}) – Esc: Schließen",
+                f"🖥️ PROGRAM fullscreen active on Monitor {screen_idx + 1} ({scr_name}) – Esc: Close",
             )
         )
+        if was_maximized and not self.isMaximized():
+            self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+        elif not was_maximized and self.geometry() != saved_geom:
+            self.setGeometry(saved_geom)
 
     def close_external_program_output(self):
         if hasattr(self, "ext_output_win") and self.ext_output_win and self.ext_output_win.isVisible():

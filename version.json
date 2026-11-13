@@ -1,7 +1,7 @@
 {
-  "version": "0.4.0",
+  "version": "0.4.1",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "New in v0.4.0: External PROGRAM Output (🖥️ / F11) to display the clean live Program feed either in a separate 16:9 window (for Zoom/Teams/Discord) or borderless fullscreen on any connected monitor, projector, or HDMI output."
+  "changelog": "New in v0.4.1: Fixed main window resize/maximize lock when activating External PROGRAM Output (🖥️) by decoupling footer status label size policy and preserving main window geometry/state."
 }
