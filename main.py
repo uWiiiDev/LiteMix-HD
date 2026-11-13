@@ -24,8 +24,8 @@ from PyQt6.QtWidgets import (
 
 from inputs import (
     BaseInput, TestPatternInput, LowerThirdInput, TextSlideInput, DataScraperEngine,
-    ImageInput, VideoFileInput, V4L2CameraInput, WaylandPortalInput, WebBrowserInput,
-    AudioInputBase, MicDeviceInput, SystemAudioInput, AudioFileInput,
+    SplitScreenInput, ImageInput, VideoFileInput, V4L2CameraInput, WaylandPortalInput,
+    WebBrowserInput, AudioInputBase, MicDeviceInput, SystemAudioInput, AudioFileInput,
     ReplaySourceInput, HighlightsInput,
     serialize_input, deserialize_input, HAS_WEBENGINE
 )
@@ -1157,6 +1157,18 @@ class InputTileWidget(QFrame):
                 self.btn_flip.setStyleSheet("padding: 1px; font-size: 9px;")
                 self.btn_flip.clicked.connect(inp.toggle_mirror)
                 btn_row.addWidget(self.btn_flip)
+            elif isinstance(inp, SplitScreenInput):
+                self.btn_flip = QPushButton("⇄")
+                self.btn_flip.setFixedWidth(18)
+                self.btn_flip.setStyleSheet("padding: 1px; font-size: 9px;")
+                self.btn_flip.clicked.connect(self._on_ss_swap_clicked)
+                btn_row.addWidget(self.btn_flip)
+
+                self.btn_cfg = QPushButton("✎")
+                self.btn_cfg.setFixedWidth(18)
+                self.btn_cfg.setStyleSheet("padding: 1px; font-size: 9px;")
+                self.btn_cfg.clicked.connect(lambda: self.main_win.edit_split_screen(inp))
+                btn_row.addWidget(self.btn_cfg)
 
         layout.addLayout(btn_row)
 
@@ -1170,6 +1182,9 @@ class InputTileWidget(QFrame):
         self.btn_slide_select = None
         self.btn_next_slide = None
         self.btn_scroll_toggle = None
+        self.btn_ss_left = None
+        self.btn_ss_right = None
+        self.btn_ss_layout = None
 
         if isinstance(inp, (VideoFileInput, AudioFileInput, ReplaySourceInput, HighlightsInput, TextSlideInput)):
             trans_row = QHBoxLayout()
@@ -1295,6 +1310,30 @@ class InputTileWidget(QFrame):
 
             layout.addLayout(ts_row)
 
+        elif isinstance(inp, SplitScreenInput):
+            ss_row = QHBoxLayout()
+            ss_row.setSpacing(2)
+
+            self.btn_ss_left = QPushButton(f"L:#{inp.left_idx + 1} ▾")
+            self.btn_ss_left.setFixedHeight(17)
+            self.btn_ss_left.setStyleSheet("padding: 0px 2px; font-size: 8px; background-color: #163b52; color: #b8e8ff;")
+            self.btn_ss_left.clicked.connect(lambda: self._open_ss_source_menu("left"))
+            ss_row.addWidget(self.btn_ss_left, 1)
+
+            self.btn_ss_right = QPushButton(f"R:#{inp.right_idx + 1} ▾")
+            self.btn_ss_right.setFixedHeight(17)
+            self.btn_ss_right.setStyleSheet("padding: 0px 2px; font-size: 8px; background-color: #164836; color: #b8ffd8;")
+            self.btn_ss_right.clicked.connect(lambda: self._open_ss_source_menu("right"))
+            ss_row.addWidget(self.btn_ss_right, 1)
+
+            self.btn_ss_layout = QPushButton("📐")
+            self.btn_ss_layout.setFixedSize(22, 17)
+            self.btn_ss_layout.setStyleSheet("padding: 0px; font-size: 8px;")
+            self.btn_ss_layout.clicked.connect(self._open_ss_layout_menu)
+            ss_row.addWidget(self.btn_ss_layout)
+
+            layout.addLayout(ss_row)
+
         # Individual Audio Controls row inside the tile (if source has audio)
         self.mini_vu = None
         self.vol_slider = None
@@ -1360,8 +1399,20 @@ class InputTileWidget(QFrame):
                 )
             elif isinstance(self.inp, WebBrowserInput):
                 self.btn_cfg.setToolTip(tr("Browserfenster öffnen/bedienen", "Open / interact with browser window"))
+            elif isinstance(self.inp, SplitScreenInput):
+                self.btn_cfg.setToolTip(
+                    tr(
+                        "2er Split-Screen / Interview-Studio konfigurieren (Quellen, Layout, Namen & Design)",
+                        "Configure 2-Way Split-Screen / Interview Studio (sources, layout, names & theme)",
+                    )
+                )
         if self.btn_flip:
-            self.btn_flip.setToolTip(tr("Kamera horizontal spiegeln (Flip)", "Flip camera horizontally (Mirror)"))
+            if isinstance(self.inp, SplitScreenInput):
+                self.btn_flip.setToolTip(
+                    tr("Linke & rechte Kamera/Quelle tauschen (⇄ Swap)", "Swap left & right camera/source (⇄ Swap)")
+                )
+            else:
+                self.btn_flip.setToolTip(tr("Kamera horizontal spiegeln (Flip)", "Flip camera horizontally (Mirror)"))
         if self.btn_play_pause:
             self.btn_play_pause.setToolTip(tr("Start / Pause", "Play / Pause"))
         if self.btn_stop_media:
@@ -1403,6 +1454,18 @@ class InputTileWidget(QFrame):
                     "Modus umschalten: 📄 Statisch/Folien ➔ 📜 Vertikaler Lauftext ➔ 📰 Horizontaler Ticker",
                     "Cycle mode: 📄 Static/Slides ➔ 📜 Vertical Scroll ➔ 📰 Horizontal Ticker",
                 )
+            )
+        if self.btn_ss_left:
+            self.btn_ss_left.setToolTip(
+                tr("Linke Quelle (Person A / Moderator) für Split-Screen wählen", "Select Left Source (Host / Person A) for Split-Screen")
+            )
+        if self.btn_ss_right:
+            self.btn_ss_right.setToolTip(
+                tr("Rechte Quelle (Person B / Gast) für Split-Screen wählen", "Select Right Source (Guest / Person B) for Split-Screen")
+            )
+        if self.btn_ss_layout:
+            self.btn_ss_layout.setToolTip(
+                tr("Split-Screen Layout wählen (50/50 Studio, 50/50 Nahtlos, 65/35 oder 35/65)", "Select Split-Screen Layout (50/50 Studio, 50/50 Seamless, 65/35, or 35/65)")
             )
         if self.btn_mute_tile:
             self.btn_mute_tile.setToolTip(tr("Ton dieser Quelle stummschalten (Mute)", "Mute audio of this source"))
@@ -1658,6 +1721,66 @@ class InputTileWidget(QFrame):
             )
         menu.exec(self.btn_slide_select.mapToGlobal(self.btn_slide_select.rect().bottomLeft()))
 
+    def _on_ss_swap_clicked(self):
+        if isinstance(self.inp, SplitScreenInput):
+            self.inp.swap_sides()
+            if self.main_win:
+                self.main_win._save_last_preset_silent()
+
+    def _open_ss_source_menu(self, side: str):
+        if not isinstance(self.inp, SplitScreenInput) or not self.main_win:
+            return
+        menu = QMenu(self)
+        cur_idx = self.inp.left_idx if side == "left" else self.inp.right_idx
+        for idx, candidate in enumerate(self.main_win.inputs):
+            if candidate is self.inp or isinstance(candidate, AudioInputBase):
+                continue
+            prefix = "✓ " if idx == cur_idx else "   "
+            menu.addAction(
+                f"{prefix}#{idx + 1}: {candidate.name}",
+                lambda i=idx, s=side: (
+                    self.inp.set_config(left_idx=i) if s == "left" else self.inp.set_config(right_idx=i),
+                    self.main_win._save_last_preset_silent(),
+                ),
+            )
+        menu.addSeparator()
+        menu.addAction(
+            tr("⇄ Linke & rechte Seite tauschen", "⇄ Swap Left & Right Sides"),
+            self._on_ss_swap_clicked,
+        )
+        menu.addAction(
+            tr("✎ Split-Screen Studio-Editor öffnen...", "✎ Open Split-Screen Studio Editor..."),
+            lambda: self.main_win.edit_split_screen(self.inp),
+        )
+        target_btn = self.btn_ss_left if side == "left" else self.btn_ss_right
+        if target_btn:
+            menu.exec(target_btn.mapToGlobal(target_btn.rect().bottomLeft()))
+
+    def _open_ss_layout_menu(self):
+        if not isinstance(self.inp, SplitScreenInput):
+            return
+        menu = QMenu(self)
+        for l_id, l_label in SplitScreenInput.get_layouts():
+            prefix = "✓ " if self.inp.layout_style == l_id else "   "
+            menu.addAction(
+                f"{prefix}{l_label}",
+                lambda lid=l_id: (
+                    self.inp.set_config(layout_style=lid),
+                    self.main_win._save_last_preset_silent() if self.main_win else None,
+                ),
+            )
+        menu.addSeparator()
+        menu.addAction(
+            tr("⇄ Linke & rechte Seite tauschen", "⇄ Swap Left & Right Sides"),
+            self._on_ss_swap_clicked,
+        )
+        menu.addAction(
+            tr("✎ Split-Screen Studio-Editor öffnen...", "✎ Open Split-Screen Studio Editor..."),
+            lambda: self.main_win.edit_split_screen(self.inp),
+        )
+        if self.btn_ss_layout:
+            menu.exec(self.btn_ss_layout.mapToGlobal(self.btn_ss_layout.rect().bottomLeft()))
+
     def set_index(self, index: int):
         self.index = index
         self.title_lbl.setText(f"{index + 1}: {self.inp.name[:18]}")
@@ -1708,6 +1831,16 @@ class InputTileWidget(QFrame):
         if self.btn_scroll_toggle and isinstance(self.inp, TextSlideInput):
             self._refresh_scroll_toggle_button()
 
+        if isinstance(self.inp, SplitScreenInput):
+            if self.btn_ss_left:
+                ltxt = f"L:#{self.inp.left_idx + 1} ▾"
+                if self.btn_ss_left.text() != ltxt:
+                    self.btn_ss_left.setText(ltxt)
+            if self.btn_ss_right:
+                rtxt = f"R:#{self.inp.right_idx + 1} ▾"
+                if self.btn_ss_right.text() != rtxt:
+                    self.btn_ss_right.setText(rtxt)
+
         if self.seek_slider is not None and hasattr(self.inp, "get_position_duration"):
             if self.btn_play_pause:
                 expected_icon = "▶" if self.inp.paused else "⏸"
@@ -1756,7 +1889,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.6.1"
+    APP_VERSION = "0.7.0"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
@@ -1860,6 +1993,7 @@ class LiteMixMainWindow(QMainWindow):
         self.ovl2_show_border = False
 
         # Transition state
+        self.transition_type = "fade"  # fade, wipe_lr, wipe_rl, wipe_tb, iris, slide_lr, push_lr, zoom_in
         self.transition_alpha = 0.0  # 0.0 = 100% PGM, 1.0 = 100% PRV
         self.fading_active = False
         self.fade_duration_ms = 600
@@ -1939,10 +2073,22 @@ class LiteMixMainWindow(QMainWindow):
         self.btn_cut.clicked.connect(self.do_cut)
         trans_layout.addWidget(self.btn_cut)
 
+        fade_row = QHBoxLayout()
+        fade_row.setSpacing(2)
         self.btn_fade = QPushButton("FADE")
         self.btn_fade.setObjectName("FadeBtn")
+        self.btn_fade.setStyleSheet("padding: 5px 2px; font-size: 10px;")
         self.btn_fade.clicked.connect(self.do_fade)
-        trans_layout.addWidget(self.btn_fade)
+
+        self.btn_trans_cfg = QPushButton("▾")
+        self.btn_trans_cfg.setFixedWidth(18)
+        self.btn_trans_cfg.setStyleSheet(
+            "padding: 5px 1px; font-size: 9px; background-color: #164f78; border: 1px solid #2fa0eb; color: #ffffff;"
+        )
+        self.btn_trans_cfg.clicked.connect(self._open_transition_menu)
+        fade_row.addWidget(self.btn_fade, 1)
+        fade_row.addWidget(self.btn_trans_cfg)
+        trans_layout.addLayout(fade_row)
 
         self.btn_ftb = QPushButton("FTB")
         self.btn_ftb.clicked.connect(self.toggle_ftb)
@@ -2218,6 +2364,13 @@ class LiteMixMainWindow(QMainWindow):
             ),
             self.add_scraper_text_input,
         )
+        add_menu.addAction(
+            tr(
+                "👥  2er Split-Screen / Interview-Studio (2 Quellen nebeneinander)",
+                "👥  2-Way Split-Screen / Interview Studio (Side-by-Side)",
+            ),
+            self.add_split_screen_input,
+        )
         add_menu.addSeparator()
         add_menu.addAction(
             tr("🎙️  Mikrofon / Audio-Eingang", "🎙️  Microphone / Audio Input"),
@@ -2327,8 +2480,16 @@ class LiteMixMainWindow(QMainWindow):
             )
         if hasattr(self, "fade_spin"):
             self.fade_spin.setToolTip(
-                tr("Überblenddauer in Millisekunden", "Crossfade duration in milliseconds")
+                tr("Übergangsdauer in Millisekunden", "Transition duration in milliseconds")
             )
+        if hasattr(self, "btn_trans_cfg"):
+            self.btn_trans_cfg.setToolTip(
+                tr(
+                    "Übergangs-Effekt wählen (FADE, WIPE ➔/⬅/⬇, IRIS, SLIDE, PUSH, ZOOM)",
+                    "Select transition effect (FADE, WIPE ➔/⬅/⬇, IRIS, SLIDE, PUSH, ZOOM)",
+                )
+            )
+        self._refresh_transition_button()
         if hasattr(self, "btn_replay_cfg"):
             self.btn_replay_cfg.setToolTip(
                 tr(
@@ -2703,6 +2864,7 @@ class LiteMixMainWindow(QMainWindow):
             "ovl1_show_border": self.ovl1_show_border,
             "ovl2_show_border": self.ovl2_show_border,
             "default_replay_rate": self.default_replay_rate,
+            "transition_type": self.transition_type,
             "fade_duration_ms": self.fade_duration_ms,
             "shortcuts": dict(self.shortcuts_map),
             "inputs": [serialize_input(inp) for inp in self.inputs],
@@ -2815,6 +2977,10 @@ class LiteMixMainWindow(QMainWindow):
 
             fdur = int(data.get("fade_duration_ms", 600))
             self.fade_spin.setValue(fdur)
+            valid_trans = {k for k, _, _ in self.get_transition_effects()}
+            ttype = str(data.get("transition_type", "fade"))
+            self.transition_type = ttype if ttype in valid_trans else "fade"
+            self._refresh_transition_button()
 
             last_p = self._last_preset_path()
             if os.path.abspath(filepath) != os.path.abspath(last_p):
@@ -2884,6 +3050,9 @@ class LiteMixMainWindow(QMainWindow):
 
     # ================= INPUT MANAGEMENT =================
     def add_input(self, inp: BaseInput):
+        if isinstance(inp, SplitScreenInput):
+            inp.source_provider = lambda: self.inputs
+            inp.update()
         idx = len(self.inputs)
         self.inputs.append(inp)
         cols = self.GRID_COLS
@@ -2920,6 +3089,13 @@ class LiteMixMainWindow(QMainWindow):
             self.ovl2_idx = -1
         elif self.ovl2_idx > index:
             self.ovl2_idx -= 1
+
+        for other in self.inputs:
+            if isinstance(other, SplitScreenInput):
+                if other.left_idx > index:
+                    other.left_idx -= 1
+                if other.right_idx > index:
+                    other.right_idx -= 1
 
         cols = self.GRID_COLS
         for idx in range(index, len(self.input_tiles)):
@@ -3032,6 +3208,33 @@ class LiteMixMainWindow(QMainWindow):
         )
         self.add_input(ts)
         self.edit_text_slide(ts, open_scraper_dialog=True)
+
+    def add_split_screen_input(self):
+        # Automatically pick the first two visual inputs if available
+        vis_indices = [
+            i for i, candidate in enumerate(self.inputs)
+            if not isinstance(candidate, (AudioInputBase, SplitScreenInput))
+        ]
+        l_idx = vis_indices[0] if len(vis_indices) >= 1 else 0
+        r_idx = vis_indices[1] if len(vis_indices) >= 2 else l_idx
+        l_name = self.inputs[l_idx].name if 0 <= l_idx < len(self.inputs) else tr("Moderator (Links)", "Host (Left)")
+        r_name = self.inputs[r_idx].name if 0 <= r_idx < len(self.inputs) else tr("Gast (Rechts)", "Guest (Right)")
+        ss = SplitScreenInput(
+            name=tr("👥 2er Split-Screen", "👥 2-Way Split-Screen"),
+            left_idx=l_idx,
+            right_idx=r_idx,
+            layout_style=0,
+            bg_style=0,
+            headline=tr("LIVE-INTERVIEW", "LIVE INTERVIEW"),
+            left_label=l_name,
+            right_label=r_name,
+            show_labels=True,
+            show_borders=True,
+            width=self.mix_w,
+            height=self.mix_h,
+        )
+        self.add_input(ss)
+        self.edit_split_screen(ss)
 
     def add_mic_device_input(self):
         sources, _ = list_audio_devices()
@@ -3703,7 +3906,367 @@ class LiteMixMainWindow(QMainWindow):
                     self.input_tiles[idx].set_index(idx)
                     self.input_tiles[idx]._refresh_scroll_toggle_button()
 
+    def edit_split_screen(self, ss: SplitScreenInput):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(
+            tr(
+                "👥 2er Split-Screen / Interview-Studio konfigurieren",
+                "👥 Configure 2-Way Split-Screen / Interview Studio",
+            )
+        )
+        dlg.resize(700, 560)
+        dlg.setStyleSheet(DARK_STYLESHEET)
+
+        orig_state = {
+            "name": ss.name,
+            "left_idx": ss.left_idx,
+            "right_idx": ss.right_idx,
+            "layout_style": ss.layout_style,
+            "bg_style": ss.bg_style,
+            "headline": ss.headline,
+            "left_label": ss.left_label,
+            "right_label": ss.right_label,
+            "show_labels": ss.show_labels,
+            "show_borders": ss.show_borders,
+        }
+
+        root_v = QVBoxLayout(dlg)
+        root_v.setContentsMargins(10, 10, 10, 10)
+        root_v.setSpacing(8)
+
+        form = QFormLayout()
+        form.setSpacing(6)
+
+        e_name = QLineEdit(ss.name)
+        e_headline = QLineEdit(ss.headline)
+        e_headline.setPlaceholderText(
+            tr("Optional: Studio-Titel oben mittig (z.B. LIVE-TALK)...", "Optional: Top studio header (e.g. LIVE INTERVIEW)...")
+        )
+
+        # Source selectors (Left & Right) + Swap button
+        src_row = QHBoxLayout()
+        combo_left = QComboBox()
+        combo_right = QComboBox()
+
+        for idx, candidate in enumerate(self.inputs):
+            if candidate is ss or isinstance(candidate, AudioInputBase):
+                continue
+            lbl = f"#{idx + 1}: {candidate.name}"
+            combo_left.addItem(lbl, idx)
+            combo_right.addItem(lbl, idx)
+
+        if combo_left.count() == 0:
+            combo_left.addItem(tr("(Keine Videoquelle geöffnet)", "(No video source open)"), 0)
+            combo_right.addItem(tr("(Keine Videoquelle geöffnet)", "(No video source open)"), 0)
+
+        for i in range(combo_left.count()):
+            if int(combo_left.itemData(i)) == ss.left_idx:
+                combo_left.setCurrentIndex(i)
+                break
+        for i in range(combo_right.count()):
+            if int(combo_right.itemData(i)) == ss.right_idx:
+                combo_right.setCurrentIndex(i)
+                break
+
+        btn_swap = QPushButton(tr("⇄ Seiten tauschen", "⇄ Swap Sides"))
+        btn_swap.setToolTip(
+            tr("Linke und rechte Kamera sowie deren Namensschilder tauschen", "Swap left and right camera and their speaker badges")
+        )
+
+        src_row.addWidget(QLabel(tr("<b>Links:</b>", "<b>Left:</b>")))
+        src_row.addWidget(combo_left, 1)
+        src_row.addWidget(btn_swap)
+        src_row.addWidget(QLabel(tr("<b>Rechts:</b>", "<b>Right:</b>")))
+        src_row.addWidget(combo_right, 1)
+
+        # Speaker labels (Left & Right)
+        lbl_row = QHBoxLayout()
+        e_left_lbl = QLineEdit(ss.left_label)
+        e_left_lbl.setPlaceholderText(tr("Name links (leer = Quellenname)", "Left name (empty = source name)"))
+        e_right_lbl = QLineEdit(ss.right_label)
+        e_right_lbl.setPlaceholderText(tr("Name rechts (leer = Quellenname)", "Right name (empty = source name)"))
+        lbl_row.addWidget(QLabel(tr("Name Links:", "Left Badge:")))
+        lbl_row.addWidget(e_left_lbl, 1)
+        lbl_row.addSpacing(8)
+        lbl_row.addWidget(QLabel(tr("Name Rechts:", "Right Badge:")))
+        lbl_row.addWidget(e_right_lbl, 1)
+
+        # Layout & Background style
+        style_row = QHBoxLayout()
+        combo_layout = QComboBox()
+        for l_id, l_label in SplitScreenInput.get_layouts():
+            combo_layout.addItem(l_label, l_id)
+        combo_layout.setCurrentIndex(ss.layout_style if 0 <= ss.layout_style < combo_layout.count() else 0)
+
+        combo_bg = QComboBox()
+        for b_id, b_label in SplitScreenInput.get_bg_styles():
+            combo_bg.addItem(b_label, b_id)
+        combo_bg.setCurrentIndex(ss.bg_style if 0 <= ss.bg_style < combo_bg.count() else 0)
+
+        style_row.addWidget(combo_layout, 3)
+        style_row.addWidget(combo_bg, 2)
+
+        # Options row (show badges & borders)
+        opt_row = QHBoxLayout()
+        chk_labels = QCheckBox(tr("🏷️ Namensschilder einblenden", "🏷️ Show speaker name badges"))
+        chk_labels.setChecked(ss.show_labels)
+        chk_borders = QCheckBox(tr("🖼️ Studio-Rahmen (Blau/Grün) anzeigen", "🖼️ Show studio borders (Blue/Green)"))
+        chk_borders.setChecked(ss.show_borders)
+        opt_row.addWidget(chk_labels)
+        opt_row.addSpacing(14)
+        opt_row.addWidget(chk_borders)
+        opt_row.addStretch()
+
+        form.addRow(tr("Kachel-Name:", "Tile Name:"), e_name)
+        form.addRow(tr("Studio-Titel (oben):", "Top Studio Header:"), e_headline)
+        form.addRow(tr("Kameras / Quellen:", "Cameras / Sources:"), src_row)
+        form.addRow(tr("Sprecher-Namen:", "Speaker Badges:"), lbl_row)
+        form.addRow(tr("Layout & Design:", "Layout & Theme:"), style_row)
+        form.addRow(tr("Optionen:", "Options:"), opt_row)
+        root_v.addLayout(form)
+
+        # Live 16:9 Preview inside dialog
+        preview_lbl = QLabel()
+        preview_lbl.setFixedSize(460, 258)
+        preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_lbl.setStyleSheet(
+            "background-color: #0e121a; border: 1px solid #323c52; border-radius: 5px;"
+        )
+        prv_wrap = QHBoxLayout()
+        prv_wrap.addStretch()
+        prv_wrap.addWidget(preview_lbl)
+        prv_wrap.addStretch()
+        root_v.addLayout(prv_wrap, 1)
+
+        def _apply_current():
+            ss.set_config(
+                name=e_name.text().strip() or tr("👥 2er Split-Screen", "👥 2-Way Split-Screen"),
+                left_idx=int(combo_left.currentData() if combo_left.currentData() is not None else 0),
+                right_idx=int(combo_right.currentData() if combo_right.currentData() is not None else 0),
+                layout_style=int(combo_layout.currentData() or 0),
+                bg_style=int(combo_bg.currentData() or 0),
+                headline=e_headline.text(),
+                left_label=e_left_lbl.text(),
+                right_label=e_right_lbl.text(),
+                show_labels=chk_labels.isChecked(),
+                show_borders=chk_borders.isChecked(),
+            )
+            ss.update()
+            img = ss.get_frame()
+            if not img.isNull():
+                scaled = img.scaled(
+                    454, 252,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                preview_lbl.setPixmap(QPixmap.fromImage(scaled))
+            if ss in self.inputs:
+                idx = self.inputs.index(ss)
+                if 0 <= idx < len(self.input_tiles):
+                    self.input_tiles[idx].set_index(idx)
+
+        def _on_swap():
+            li = combo_left.currentIndex()
+            ri = combo_right.currentIndex()
+            combo_left.blockSignals(True)
+            combo_right.blockSignals(True)
+            combo_left.setCurrentIndex(ri)
+            combo_right.setCurrentIndex(li)
+            combo_left.blockSignals(False)
+            combo_right.blockSignals(False)
+            lt_txt = e_left_lbl.text()
+            rt_txt = e_right_lbl.text()
+            e_left_lbl.blockSignals(True)
+            e_right_lbl.blockSignals(True)
+            e_left_lbl.setText(rt_txt)
+            e_right_lbl.setText(lt_txt)
+            e_left_lbl.blockSignals(False)
+            e_right_lbl.blockSignals(False)
+            _apply_current()
+
+        btn_swap.clicked.connect(_on_swap)
+        e_name.textChanged.connect(_apply_current)
+        e_headline.textChanged.connect(_apply_current)
+        combo_left.currentIndexChanged.connect(_apply_current)
+        combo_right.currentIndexChanged.connect(_apply_current)
+        e_left_lbl.textChanged.connect(_apply_current)
+        e_right_lbl.textChanged.connect(_apply_current)
+        combo_layout.currentIndexChanged.connect(_apply_current)
+        combo_bg.currentIndexChanged.connect(_apply_current)
+        chk_labels.toggled.connect(_apply_current)
+        chk_borders.toggled.connect(_apply_current)
+
+        # Live preview refresh timer while dialog is open
+        dlg_timer = QTimer(dlg)
+        dlg_timer.timeout.connect(_apply_current)
+        dlg_timer.start(66)
+        _apply_current()
+
+        btn_row = QHBoxLayout()
+        btn_cancel = QPushButton(tr("Abbrechen", "Cancel"))
+        btn_ok = QPushButton(tr("✓ Speichern & Schließen", "✓ Save & Close"))
+        btn_ok.setObjectName("AddInputBtn")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_ok.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        root_v.addLayout(btn_row)
+
+        if dlg.exec():
+            dlg_timer.stop()
+            _apply_current()
+            self._save_last_preset_silent()
+        else:
+            dlg_timer.stop()
+            ss.set_config(**orig_state)
+            ss.update()
+            if ss in self.inputs:
+                idx = self.inputs.index(ss)
+                if 0 <= idx < len(self.input_tiles):
+                    self.input_tiles[idx].set_index(idx)
+
     # ================= SWITCHING & TRANSITIONS =================
+    @classmethod
+    def get_transition_effects(cls) -> list[tuple[str, str, str]]:
+        return [
+            ("fade", "FADE", tr("✨ FADE – Weiche Überblendung (Crossfade)", "✨ FADE – Smooth Crossfade")),
+            ("wipe_lr", "WIPE ➔", tr("➡️ WIPE ➔ – Wischblende Links ➔ Rechts", "➡️ WIPE ➔ – Wipe Left ➔ Right")),
+            ("wipe_rl", "WIPE ⬅", tr("⬅️ WIPE ⬅ – Wischblende Rechts ➔ Links", "⬅️ WIPE ⬅ – Wipe Right ➔ Left")),
+            ("wipe_tb", "WIPE ⬇", tr("⬇️ WIPE ⬇ – Wischblende Oben ➔ Unten", "⬇️ WIPE ⬇ – Wipe Top ➔ Bottom")),
+            ("iris", "IRIS", tr("🎯 IRIS – Zentrum-Blende (Barn Door / Iris)", "🎯 IRIS – Center Iris / Barn Door")),
+            ("slide_lr", "SLIDE", tr("🪟 SLIDE – Neues Bild gleitet seitlich herein", "🪟 SLIDE – Slide Over Right ➔ Left")),
+            ("push_lr", "PUSH", tr("⏩ PUSH – Neues Bild schiebt Live-Bild weg", "⏩ PUSH – Push Right ➔ Left")),
+            ("zoom_in", "ZOOM", tr("🔍 ZOOM – Dynamischer Zoom-Übergang", "🔍 ZOOM – Dynamic Zoom-In Transition")),
+        ]
+
+    def set_transition_type(self, t_key: str):
+        valid = {k for k, _, _ in self.get_transition_effects()}
+        self.transition_type = t_key if t_key in valid else "fade"
+        self._refresh_transition_button()
+        self._save_last_preset_silent()
+
+    def _refresh_transition_button(self):
+        if not hasattr(self, "btn_fade") or not self.btn_fade:
+            return
+        btn_txt = "FADE"
+        desc_txt = tr("Weiche Überblendung", "Smooth Crossfade")
+        for k, short_lbl, full_lbl in self.get_transition_effects():
+            if k == self.transition_type:
+                btn_txt = short_lbl
+                desc_txt = full_lbl
+                break
+        self.btn_fade.setText(btn_txt)
+        hk = self.shortcuts_map.get("fade", "").strip()
+        hk_suffix = f" [{hk}]" if hk else ""
+        self.btn_fade.setToolTip(f"{desc_txt}{hk_suffix}")
+
+    def _open_transition_menu(self):
+        menu = QMenu(self)
+        for k, _, full_lbl in self.get_transition_effects():
+            prefix = "✓ " if self.transition_type == k else "   "
+            menu.addAction(
+                f"{prefix}{full_lbl}",
+                lambda key=k: self.set_transition_type(key),
+            )
+        if hasattr(self, "btn_trans_cfg") and self.btn_trans_cfg:
+            menu.exec(self.btn_trans_cfg.mapToGlobal(self.btn_trans_cfg.rect().bottomLeft()))
+
+    def _render_transition_composite(self, p: QPainter, base_pgm: QImage, prv_frame: QImage, alpha: float):
+        """Renders the active transition effect (Fade, Wipe, Iris, Slide, Push, Zoom) onto the Program canvas."""
+        mw, mh = self.mix_w, self.mix_h
+        alpha = max(0.0, min(1.0, float(alpha)))
+        ttype = getattr(self, "transition_type", "fade")
+
+        if alpha <= 0.005 or prv_frame.isNull():
+            if not base_pgm.isNull():
+                p.drawImage(0, 0, base_pgm)
+            else:
+                p.fillRect(0, 0, mw, mh, QColor(0, 0, 0))
+            return
+
+        if ttype == "push_lr":
+            # Push: Live PGM slides out to the left while PRV pushes in from the right
+            offset_x = int(round(mw * alpha))
+            p.fillRect(0, 0, mw, mh, QColor(0, 0, 0))
+            if not base_pgm.isNull():
+                p.drawImage(-offset_x, 0, base_pgm)
+            p.drawImage(mw - offset_x, 0, prv_frame)
+            p.setPen(QPen(QColor(0, 210, 255, 220), 3))
+            p.drawLine(mw - offset_x, 0, mw - offset_x, mh)
+            return
+
+        # All other transitions draw base_pgm first
+        if not base_pgm.isNull():
+            p.drawImage(0, 0, base_pgm)
+        else:
+            p.fillRect(0, 0, mw, mh, QColor(0, 0, 0))
+
+        if ttype == "wipe_lr":
+            wipe_w = max(1, int(round(mw * alpha)))
+            p.save()
+            p.setClipRect(0, 0, wipe_w, mh)
+            p.drawImage(0, 0, prv_frame)
+            p.restore()
+            p.setPen(QPen(QColor(0, 210, 255, 220), 3))
+            p.drawLine(wipe_w, 0, wipe_w, mh)
+
+        elif ttype == "wipe_rl":
+            wipe_w = max(1, int(round(mw * alpha)))
+            rx = mw - wipe_w
+            p.save()
+            p.setClipRect(rx, 0, wipe_w, mh)
+            p.drawImage(0, 0, prv_frame)
+            p.restore()
+            p.setPen(QPen(QColor(0, 210, 255, 220), 3))
+            p.drawLine(rx, 0, rx, mh)
+
+        elif ttype == "wipe_tb":
+            wipe_h = max(1, int(round(mh * alpha)))
+            p.save()
+            p.setClipRect(0, 0, mw, wipe_h)
+            p.drawImage(0, 0, prv_frame)
+            p.restore()
+            p.setPen(QPen(QColor(0, 210, 255, 220), 3))
+            p.drawLine(0, wipe_h, mw, wipe_h)
+
+        elif ttype == "iris":
+            iw = max(2, int(round(mw * alpha)))
+            ih = max(2, int(round(mh * alpha)))
+            ix = (mw - iw) // 2
+            iy = (mh - ih) // 2
+            p.save()
+            p.setClipRect(ix, iy, iw, ih)
+            p.drawImage(0, 0, prv_frame)
+            p.restore()
+            p.setPen(QPen(QColor(0, 210, 255, 210), 2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRect(ix, iy, iw, ih)
+
+        elif ttype == "slide_lr":
+            slide_x = int(round(mw * (1.0 - alpha)))
+            p.drawImage(slide_x, 0, prv_frame)
+            p.setPen(QPen(QColor(0, 210, 255, 220), 3))
+            p.drawLine(slide_x, 0, slide_x, mh)
+
+        elif ttype == "zoom_in":
+            # Smooth ease-out scale + opacity from center
+            scale = 0.25 + 0.75 * alpha
+            zw = mw * scale
+            zh = mh * scale
+            zx = (mw - zw) * 0.5
+            zy = (mh - zh) * 0.5
+            p.save()
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            p.setOpacity(min(1.0, alpha * 1.25))
+            p.drawImage(QRectF(zx, zy, zw, zh), prv_frame)
+            p.restore()
+
+        else:
+            # Default: Smooth Crossfade ("fade")
+            p.setOpacity(alpha)
+            p.drawImage(0, 0, prv_frame)
+            p.setOpacity(1.0)
     def set_preview(self, idx: int):
         if 0 <= idx < len(self.inputs):
             self.prv_idx = idx
@@ -4211,20 +4774,10 @@ class LiteMixMainWindow(QMainWindow):
         prv_frame = prv_inp.get_frame() if prv_inp else QImage()
         base_pgm = pgm_inp.get_frame() if pgm_inp else QImage()
 
-        # 4. Composite Program output (Base + Crossfade + OVL1 PiP + OVL2 LowerThird + FTB)
+        # 4. Composite Program output (Base + Transition Effect + OVL1 PiP + OVL2 LowerThird + FTB)
         pgm_canvas = self._pgm_canvas
         p = QPainter(pgm_canvas)
-
-        if not base_pgm.isNull():
-            p.drawImage(0, 0, base_pgm)
-        else:
-            p.fillRect(0, 0, self.mix_w, self.mix_h, QColor(0, 0, 0))
-
-        # Crossfade blend if in transition
-        if self.transition_alpha > 0.005 and not prv_frame.isNull():
-            p.setOpacity(self.transition_alpha)
-            p.drawImage(0, 0, prv_frame)
-            p.setOpacity(1.0)
+        self._render_transition_composite(p, base_pgm, prv_frame, self.transition_alpha)
 
         # Overlay 1: Freely positionable & resizable overlay (Default: PiP bottom-right)
         if 0 <= self.ovl1_idx < len(self.inputs):
@@ -4306,13 +4859,24 @@ class LiteMixMainWindow(QMainWindow):
                 )
 
         # 8. Audio-Follow-Video (AFV) for video sources & Update Audio VU Meters
+        ss_pgm_members: set[int] = set()
+        if isinstance(pgm_inp, SplitScreenInput):
+            ss_pgm_members.update((pgm_inp.left_idx, pgm_inp.right_idx))
+        ss_prv_members: set[int] = set()
+        if isinstance(prv_inp, SplitScreenInput):
+            ss_prv_members.update((prv_inp.left_idx, prv_inp.right_idx))
+        for ov_idx in (self.ovl1_idx, self.ovl2_idx):
+            if 0 <= ov_idx < len(self.inputs) and isinstance(self.inputs[ov_idx], SplitScreenInput):
+                ov_ss = self.inputs[ov_idx]
+                ss_pgm_members.update((ov_ss.left_idx, ov_ss.right_idx))
+
         for idx, inp in enumerate(self.inputs):
             if isinstance(inp, VideoFileInput):
-                if self.ftb_active and idx != self.prv_idx:
+                if self.ftb_active and idx != self.prv_idx and idx not in ss_prv_members:
                     inp.set_afv_gain(0.0)
-                elif idx == self.pgm_idx:
+                elif idx == self.pgm_idx or idx in ss_pgm_members:
                     inp.set_afv_gain(1.0 - self.transition_alpha)
-                elif idx == self.prv_idx and self.transition_alpha > 0.01:
+                elif (idx == self.prv_idx or idx in ss_prv_members) and self.transition_alpha > 0.01:
                     inp.set_afv_gain(self.transition_alpha)
                 elif idx == self.prv_idx and not inp.paused:
                     inp.set_afv_gain(1.0)

@@ -95,7 +95,7 @@ HELP_HTML_DE = """
 <div class="box">
   <ul>
     <li><span class="key">CUT</span> – Harter, sofortiger Schnitt: Tauscht <b>PREVIEW</b> und <b>PROGRAM</b> sofort aus.</li>
-    <li><span class="key">FADE</span> – Weiche Überblendung zwischen Vorschau und Programm (Dauer in Millisekunden darunter im Feld <b>Dauer</b> einstellbar, Standard: <span class="key">600 ms</span>).</li>
+    <li><span class="key">FADE</span> + <span class="key">▾</span> – <b>8 Broadcast-Übergänge</b> zwischen Vorschau und Programm (über <span class="key">▾</span> wählbar: <b>FADE</b> Crossfade, <b>WIPE ➔</b> Links→Rechts, <b>WIPE ⬅</b> Rechts→Links, <b>WIPE ⬇</b> Oben→Unten, <b>IRIS</b> Zentrum-Blende, <b>SLIDE</b> Seitlich gleiten, <b>PUSH</b> Bild wegschieben, <b>ZOOM</b> Dynamischer Zoom; Dauer in ms darunter einstellbar, Standard: <span class="key">600 ms</span>).</li>
     <li><span class="key">FTB</span> – <b>Fade to Black (Schwarzblende):</b> Blendet den Live-Ausgang komplett auf Schwarz (und schaltet den Programmton stumm), bis erneut auf <span class="key">FTB</span> geklickt wird.</li>
     <li><b>T-Bar (Schieberegler):</b> Manuelle Überblendung von 0 % bis 100 % per Maus.</li>
     <li><span class="key">⏺ REPLAY</span> – <b>Manuelle Replay-Aufnahme:</b>
@@ -131,6 +131,7 @@ HELP_HTML_DE = """
     <li><span class="key">OV1</span> / <span class="key">OV2</span> – Blendet diese Quelle als Overlay 1 oder Overlay 2 ein/aus.</li>
     <li><span class="key">✎</span> (bei Bauchbinden &amp; Texttafeln) – Öffnet den Editor (für Bauchbinden mit 3 Broadcast-Templates bzw. den <b>mehrzeiligen Text-, Folien-, Ticker- &amp; Scraper-Editor</b> mit 6 Hintergrund-Stilen inkl. Nachrichten-Ticker-Leiste, Farbschemata, Folientrennern <span class="key">---</span>, vertikalem &amp; horizontalem Lauftext sowie integriertem <b>Datei- &amp; Webseiten-Scraper</b>).</li>
     <li><span class="key">⏮</span> / <span class="key">📄 #1/2 ▾</span> / <span class="key">⏭</span> / <span class="key">📄|📜|📰</span> (bei Texttafeln) – Blättert zwischen mehreren Textfolien (getrennt durch <span class="key">---</span>) oder schaltet zwischen <b>Statisch (<span class="key">📄</span>)</b>, <b>Vertikal-Lauftext (<span class="key">📜</span>)</b> und <b>Horizontal-Ticker (<span class="key">📰</span>)</b> um.</li>
+    <li><span class="key">L:#1 ▾</span> / <span class="key">R:#2 ▾</span> / <span class="key">📐</span> / <span class="key">⇄</span> / <span class="key">✎</span> (bei <b>👥 2er Split-Screen / Interview-Studio</b>) – Wählt direkt auf der Kachel die linke/rechte Kamera, schaltet zwischen 4 Layouts (50/50 Studio, 50/50 Nahtlos, 65/35, 35/65) um, tauscht Links &amp; Rechts (<span class="key">⇄</span>) oder öffnet den Studio-Editor (<span class="key">✎</span>).</li>
     <li><span class="key">⇄</span> (bei Kameras) – Spiegelt das Kamerabild horizontal.</li>
     <li><span class="key">🌐</span> (bei Browser-Quellen) – Öffnet das interaktive Browserfenster zum Bedienen/Scrollen.</li>
     <li><span class="key">▶/⏸</span>, <span class="key">⏹</span>, <span class="key">🔁</span>, <span class="key">↩</span> – Transportsteuerung, Endlosschleife (<span class="key">🔁</span>) und Auto-Rücksprung zur Vorschau (<span class="key">↩</span>).</li>
@@ -189,7 +190,7 @@ HELP_HTML_EN = """
 <div class="box">
   <ul>
     <li><span class="key">CUT</span> – Instant hard cut swapping <b>PREVIEW</b> and <b>PROGRAM</b>.</li>
-    <li><span class="key">FADE</span> – Smooth crossfade transition between Preview and Program (duration in ms is configurable in the spinner below, default: <span class="key">600 ms</span>).</li>
+    <li><span class="key">FADE</span> + <span class="key">▾</span> – <b>8 Broadcast Transitions</b> between Preview and Program (selectable via <span class="key">▾</span>: <b>FADE</b> Crossfade, <b>WIPE ➔</b> Left→Right, <b>WIPE ⬅</b> Right→Left, <b>WIPE ⬇</b> Top→Bottom, <b>IRIS</b> Center Barn Door, <b>SLIDE</b> Slide Over, <b>PUSH</b> Push Screen, <b>ZOOM</b> Dynamic Zoom; duration in ms configurable below, default: <span class="key">600 ms</span>).</li>
     <li><span class="key">FTB</span> – <b>Fade to Black:</b> Fades the live Program output to black (and mutes Program video audio) until clicked again.</li>
     <li><b>T-Bar Slider:</b> Manual transition fader from 0% to 100%.</li>
     <li><span class="key">⏺ REPLAY</span> – <b>Manual Instant Replay Recorder:</b>
@@ -225,6 +226,7 @@ HELP_HTML_EN = """
     <li><span class="key">OV1</span> / <span class="key">OV2</span> – Toggle this source on Overlay channel 1 or 2.</li>
     <li><span class="key">✎</span> (Lower Thirds &amp; Text Slides) – Opens the editor (Lower Third editor with 3 broadcast templates, or the <b>Multi-Line Text, Slide, Ticker &amp; Scraper Editor</b> with 6 background styles including Bottom News Ticker Bar, color themes, slide breaks <span class="key">---</span>, vertical &amp; horizontal scrolling, and built-in <b>File &amp; Website Scraper</b>).</li>
     <li><span class="key">⏮</span> / <span class="key">📄 #1/2 ▾</span> / <span class="key">⏭</span> / <span class="key">📄|📜|📰</span> (Text Slides) – Flip between multiple text slides (separated by <span class="key">---</span>) or cycle between <b>Static (<span class="key">📄</span>)</b>, <b>Vertical Scroll (<span class="key">📜</span>)</b>, and <b>Horizontal News Ticker (<span class="key">📰</span>)</b>.</li>
+    <li><span class="key">L:#1 ▾</span> / <span class="key">R:#2 ▾</span> / <span class="key">📐</span> / <span class="key">⇄</span> / <span class="key">✎</span> (<b>👥 2-Way Split-Screen / Interview Studio</b>) – Pick the left/right camera directly on the tile, switch between 4 layouts (50/50 Studio, 50/50 Seamless, 65/35, 35/65), swap Left &amp; Right (<span class="key">⇄</span>), or open the Studio Editor (<span class="key">✎</span>).</li>
     <li><span class="key">⇄</span> (Cameras) – Flip camera horizontally (mirror).</li>
     <li><span class="key">🌐</span> (Web Browser) – Open the interactive browser window to navigate or scroll.</li>
     <li><span class="key">▶/⏸</span>, <span class="key">⏹</span>, <span class="key">🔁</span>, <span class="key">↩</span> – Transport controls, Loop (<span class="key">🔁</span>), and Auto-Return to Preview (<span class="key">↩</span>).</li>

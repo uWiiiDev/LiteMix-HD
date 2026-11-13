@@ -1,7 +1,7 @@
 {
-  "version": "0.6.1",
+  "version": "0.7.0",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "New in v0.6.1: Allow closing all sources down to an empty set (0 sources) via ✕ or the Set menu (🗑️ Close All Sources), plus File & Website Data Scraper (🌐) and Horizontal News Ticker (📰)."
+  "changelog": "New in v0.7.0: 8 Broadcast Transition Effects (FADE, WIPE ➔/⬅/⬇, IRIS, SLIDE, PUSH, ZOOM) for Auto-Fade & T-Bar, plus 2-Way Split-Screen / Interview Studio (👥) with 4 layouts, speaker badges, and 1-click camera swap."
 }

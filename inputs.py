@@ -1347,6 +1347,249 @@ class TextSlideInput(BaseInput):
             self._frame = img
 
 
+class SplitScreenInput(BaseInput):
+    """
+    2-Way Split-Screen / Interview Multi-View source ('👥 2er Split-Screen / Interview'):
+    Combines any two live sources from the input grid side-by-side in real time.
+    Supports 4 broadcast layouts (50/50 16:9 Cards, 50/50 Fullscreen Center-Crop, 65/35 Host+Guest, 35/65 Guest+Host),
+    4 background themes (including Alpha transparency), speaker name badges, and one-click Left/Right swap (⇄).
+    """
+
+    @classmethod
+    def get_layout_styles(cls) -> list[tuple[int, str]]:
+        return [
+            (0, tr("1: Klassisch 50 / 50 (Zwei 16:9-Fenster mit Studio-Hintergrund)", "1: Classic 50 / 50 (Two 16:9 Windows on Studio Background)")),
+            (1, tr("2: Vollbild 50 / 50 (Nahtlos geteilter Bildschirm – Crop-Fill)", "2: Fullscreen 50 / 50 (Seamless Split Screen – Center Crop)")),
+            (2, tr("3: Moderator + Gast 65 / 35 (Groß links + Kompakt rechts)", "3: Host + Guest 65 / 35 (Large Left + Compact Right)")),
+            (3, tr("4: Gast + Moderator 35 / 65 (Kompakt links + Groß rechts)", "4: Guest + Host 35 / 65 (Compact Left + Large Right)")),
+        ]
+
+    get_layouts = get_layout_styles
+
+    @classmethod
+    def get_bg_styles(cls) -> list[tuple[int, str]]:
+        return [
+            (0, tr("1: Studio Dunkelblau (Cyan-Akzent)", "1: Studio Dark Blue (Cyan Accent)")),
+            (1, tr("2: Broadcast Rot / Anthrazit (News-Design)", "2: Broadcast Red / Charcoal (News Theme)")),
+            (2, tr("3: Smaragd / Modern Grün (Talk-Design)", "3: Emerald / Modern Green (Talk Theme)")),
+            (3, tr("4: Transparent (Alpha – ideal für OV1/OV2 über Video)", "4: Transparent (Alpha – ideal for OV1/OV2 over video)")),
+        ]
+
+    def __init__(
+        self,
+        name: str = "",
+        left_idx: int = 0,
+        right_idx: int = 1,
+        layout_style: int = 0,
+        bg_style: int = 0,
+        headline: str = "",
+        left_label: str = "",
+        right_label: str = "",
+        show_labels: bool = True,
+        show_borders: bool = True,
+        width: int = 1280,
+        height: int = 720,
+    ):
+        default_name = name.strip() or tr("👥 2er Split-Screen", "👥 2-Way Split-Screen")
+        super().__init__(default_name, width, height)
+        self.left_idx = max(0, int(left_idx))
+        self.right_idx = max(0, int(right_idx))
+        self.layout_style = int(layout_style) % 4
+        self.bg_style = int(bg_style) % 4
+        self.headline = headline if headline != "" else tr("LIVE • INTERVIEW", "LIVE • INTERVIEW")
+        self.left_label = left_label
+        self.right_label = right_label
+        self.show_labels = bool(show_labels)
+        self.show_borders = bool(show_borders)
+        self.source_provider = None  # Callable returning list[BaseInput]
+        self.render_from_sources([])
+
+    def swap_sides(self):
+        """Swaps Left and Right sources and their custom speaker labels."""
+        self.left_idx, self.right_idx = self.right_idx, self.left_idx
+        self.left_label, self.right_label = self.right_label, self.left_label
+        if callable(self.source_provider):
+            self.render_from_sources(self.source_provider())
+
+    def set_config(
+        self,
+        name: str | None = None,
+        left_idx: int | None = None,
+        right_idx: int | None = None,
+        layout_style: int | None = None,
+        bg_style: int | None = None,
+        headline: str | None = None,
+        left_label: str | None = None,
+        right_label: str | None = None,
+        show_labels: bool | None = None,
+        show_borders: bool | None = None,
+    ):
+        if name is not None and name.strip():
+            self.name = name.strip()
+        if left_idx is not None:
+            self.left_idx = max(0, int(left_idx))
+        if right_idx is not None:
+            self.right_idx = max(0, int(right_idx))
+        if layout_style is not None:
+            self.layout_style = int(layout_style) % 4
+        if bg_style is not None:
+            self.bg_style = int(bg_style) % 4
+        if headline is not None:
+            self.headline = headline
+        if left_label is not None:
+            self.left_label = left_label
+        if right_label is not None:
+            self.right_label = right_label
+        if show_labels is not None:
+            self.show_labels = bool(show_labels)
+        if show_borders is not None:
+            self.show_borders = bool(show_borders)
+        if callable(self.source_provider):
+            self.render_from_sources(self.source_provider())
+        else:
+            self.render_from_sources([])
+
+    def update(self):
+        if callable(self.source_provider):
+            self.render_from_sources(self.source_provider())
+
+    def _get_safe_source_frame(self, sources: list[BaseInput], idx: int) -> tuple[QImage | None, str]:
+        if 0 <= idx < len(sources):
+            src = sources[idx]
+            if src is not self and not isinstance(src, SplitScreenInput):
+                return src.get_frame(), src.name
+        return None, tr(f"Quelle {idx + 1}", f"Source {idx + 1}")
+
+    def render_from_sources(self, sources: list[BaseInput]):
+        img = QImage(self.width, self.height, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(Qt.GlobalColor.transparent)
+        p = QPainter(img)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+
+        if self.bg_style == 0:
+            accent_col = QColor(0, 210, 255)
+            bg_grad = QLinearGradient(0, 0, self.width, self.height)
+            bg_grad.setColorAt(0.0, QColor(12, 18, 34))
+            bg_grad.setColorAt(0.5, QColor(22, 34, 60))
+            bg_grad.setColorAt(1.0, QColor(10, 14, 24))
+        elif self.bg_style == 1:
+            accent_col = QColor(245, 60, 75)
+            bg_grad = QLinearGradient(0, 0, self.width, self.height)
+            bg_grad.setColorAt(0.0, QColor(36, 12, 18))
+            bg_grad.setColorAt(0.5, QColor(24, 20, 30))
+            bg_grad.setColorAt(1.0, QColor(12, 12, 18))
+        elif self.bg_style == 2:
+            accent_col = QColor(40, 228, 145)
+            bg_grad = QLinearGradient(0, 0, self.width, self.height)
+            bg_grad.setColorAt(0.0, QColor(10, 32, 26))
+            bg_grad.setColorAt(0.5, QColor(16, 40, 44))
+            bg_grad.setColorAt(1.0, QColor(10, 18, 24))
+        else:
+            accent_col = QColor(0, 210, 255)
+            bg_grad = None
+
+        if bg_grad is not None and self.layout_style != 1:
+            p.fillRect(0, 0, self.width, self.height, bg_grad)
+
+        left_frm, left_src_name = self._get_safe_source_frame(sources, self.left_idx)
+        right_frm, right_src_name = self._get_safe_source_frame(sources, self.right_idx)
+        lbl_l = self.left_label.strip() or left_src_name
+        lbl_r = self.right_label.strip() or right_src_name
+
+        # Layout 1: Seamless 50/50 Fullscreen Center-Crop
+        if self.layout_style == 1:
+            half_w = self.width // 2
+            h = self.height
+            for side_i, (frm, dest_x) in enumerate([(left_frm, 0), (right_frm, half_w)]):
+                dest_rect = QRectF(float(dest_x), 0.0, float(half_w), float(h))
+                p.fillRect(dest_rect, QColor(14, 18, 26))
+                if frm is not None and not frm.isNull():
+                    fw, fh = frm.width(), frm.height()
+                    crop_w = max(1, fw // 2)
+                    crop_x = (fw - crop_w) // 2
+                    sub = frm.copy(crop_x, 0, crop_w, fh)
+                    p.drawImage(dest_rect, sub)
+            if self.show_borders:
+                p.setPen(QPen(accent_col, 4.0))
+                p.drawLine(QPointF(float(half_w), 0.0), QPointF(float(half_w), float(h)))
+            if self.show_labels:
+                self._draw_speaker_pill(p, QRectF(28.0, float(h - 68), float(half_w - 56), 42.0), lbl_l, accent_col)
+                self._draw_speaker_pill(p, QRectF(float(half_w + 28), float(h - 68), float(half_w - 56), 42.0), lbl_r, accent_col)
+            if self.headline.strip():
+                self._draw_top_header_pill(p, self.headline.strip(), accent_col)
+            p.end()
+            with self._lock:
+                self._frame = img
+            return
+
+        # Layouts 0, 2, 3: Framed 16:9 Broadcast Boxes
+        if self.layout_style == 0:
+            r_left = QRectF(42.0, 178.0, 576.0, 324.0)
+            r_right = QRectF(662.0, 178.0, 576.0, 324.0)
+        elif self.layout_style == 2:
+            r_left = QRectF(42.0, 142.0, 720.0, 405.0)
+            r_right = QRectF(794.0, 220.0, 444.0, 250.0)
+        else:
+            r_left = QRectF(42.0, 220.0, 444.0, 250.0)
+            r_right = QRectF(518.0, 142.0, 720.0, 405.0)
+
+        if self.headline.strip():
+            self._draw_top_header_pill(p, self.headline.strip(), accent_col)
+
+        for box_rect, frm, spk_lbl in [(r_left, left_frm, lbl_l), (r_right, right_frm, lbl_r)]:
+            # Drop shadow
+            p.setBrush(QColor(0, 0, 0, 135))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(box_rect.translated(6.0, 8.0), 10.0, 10.0)
+
+            p.fillRect(box_rect, QColor(12, 16, 24))
+            if frm is not None and not frm.isNull():
+                p.drawImage(box_rect, frm)
+
+            if self.show_borders:
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(accent_col, 3.0))
+                p.drawRoundedRect(box_rect, 8.0, 8.0)
+
+            if self.show_labels and spk_lbl:
+                pill_r = QRectF(box_rect.left() + 14.0, box_rect.bottom() + 14.0, box_rect.width() - 28.0, 38.0)
+                self._draw_speaker_pill(p, pill_r, spk_lbl, accent_col)
+
+        p.end()
+        with self._lock:
+            self._frame = img
+
+    def _draw_top_header_pill(self, p: QPainter, text: str, accent_col: QColor):
+        p.setFont(QFont("Sans Serif", 18, QFont.Weight.Bold))
+        m = p.boundingRect(QRectF(0, 0, 900, 50), Qt.AlignmentFlag.AlignCenter, text)
+        pw = max(240.0, min(760.0, float(m.width()) + 70.0))
+        ph = 46.0
+        px = (self.width - pw) * 0.5
+        py = 34.0
+        p.setBrush(QColor(12, 16, 26, 232))
+        p.setPen(QPen(accent_col, 2.0))
+        p.drawRoundedRect(QRectF(px, py, pw, ph), 23.0, 23.0)
+        p.setPen(QColor(255, 255, 255))
+        p.drawText(QRectF(px + 16.0, py, pw - 32.0, ph), Qt.AlignmentFlag.AlignCenter, text)
+
+    @staticmethod
+    def _draw_speaker_pill(p: QPainter, rect: QRectF, label: str, accent_col: QColor):
+        p.setBrush(QColor(12, 16, 26, 228))
+        p.setPen(QPen(QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 190), 1.8))
+        p.drawRoundedRect(rect, 8.0, 8.0)
+        p.setBrush(accent_col)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(QRectF(rect.left(), rect.top(), 8.0, rect.height()), 4.0, 4.0)
+        p.setPen(QColor(255, 255, 255))
+        p.setFont(QFont("Sans Serif", 14, QFont.Weight.Bold))
+        p.drawText(
+            QRectF(rect.left() + 18.0, rect.top(), rect.width() - 28.0, rect.height()),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            label,
+        )
+
+
 class ImageInput(BaseInput):
     """Static image source (PNG/JPG/SVG) including alpha transparency for overlays or fullscreen."""
 
@@ -2366,6 +2609,16 @@ def serialize_input(inp: BaseInput) -> dict:
         d["scraper_selector"] = inp.scraper_selector
         d["scraper_auto_refresh"] = bool(inp.scraper_auto_refresh)
         d["scraper_interval_sec"] = int(inp.scraper_interval_sec)
+    elif isinstance(inp, SplitScreenInput):
+        d["left_idx"] = int(inp.left_idx)
+        d["right_idx"] = int(inp.right_idx)
+        d["layout_style"] = int(inp.layout_style)
+        d["bg_style"] = int(inp.bg_style)
+        d["headline"] = inp.headline
+        d["left_label"] = inp.left_label
+        d["right_label"] = inp.right_label
+        d["show_labels"] = bool(inp.show_labels)
+        d["show_borders"] = bool(inp.show_borders)
     elif isinstance(inp, ImageInput):
         d["filepath"] = inp.filepath
     elif isinstance(inp, VideoFileInput):
@@ -2440,6 +2693,21 @@ def deserialize_input(data: dict, width: int = 1280, height: int = 720) -> BaseI
         )
         if "current_slide_idx" in data:
             inp.select_slide(int(data.get("current_slide_idx", 0)))
+    elif t == "SplitScreenInput":
+        inp = SplitScreenInput(
+            name=name,
+            left_idx=int(data.get("left_idx", 0)),
+            right_idx=int(data.get("right_idx", 1)),
+            layout_style=int(data.get("layout_style", 0)),
+            bg_style=int(data.get("bg_style", 0)),
+            headline=data.get("headline", ""),
+            left_label=data.get("left_label", ""),
+            right_label=data.get("right_label", ""),
+            show_labels=bool(data.get("show_labels", True)),
+            show_borders=bool(data.get("show_borders", True)),
+            width=width,
+            height=height,
+        )
     elif t == "ImageInput":
         fp = data.get("filepath", "")
         if fp and os.path.exists(fp):

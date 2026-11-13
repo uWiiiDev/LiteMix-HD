@@ -12,7 +12,8 @@ Specifically engineered for compact laptops and low-power CPUs (e.g. Intel Core 
   - Live one-click language switching between **German (`DE`)** and **English (`EN`)** for both the desktop UI, the Web Remote UI, and the comprehensive built-in Help & Function Guide (`❓` / `F12`).
 - **Preview (`PREVIEW`) & Live (`PROGRAM`) Monitoring + External Output (`🖥️`):**
   - Direct media transport bar (`▶`/`⏸`, `⏹`, Loop `🔁`, Auto-Return `↩`, Scrubber & Timecode) inside the `PREVIEW` monitor and on each playable input tile.
-  - Broadcast transitions via **CUT**, **FADE** (configurable duration in ms), manual **T-Bar**, and **FTB** (Fade to Black).
+  - **8 Broadcast Transition Effects (`FADE ▾` & `T-Bar`):** Instant **CUT**, **FADE** (Smooth Crossfade), **WIPE ➔** (Left→Right), **WIPE ⬅** (Right→Left), **WIPE ⬇** (Top→Bottom), **IRIS** (Center Barn Door), **SLIDE** (Slide Over), **PUSH** (Push Screen), **ZOOM** (Dynamic Zoom-In), manual **T-Bar**, and **FTB** (Fade to Black).
+  - **2-Way Split-Screen / Interview Studio (`👥 SplitScreenInput`):** Combine any two live video/camera/browser sources side-by-side with 4 studio layouts (*50/50 16:9 Studio Windows*, *50/50 Seamless Fullscreen*, *65/35 Host + Guest*, *35/65 Guest + Host*), 4 background themes, top studio header pill, speaker name badges, and 1-click Left⇄Right swap (`⇄`).
   - **External `PROGRAM` Output (`🖥️` / `F11`):** Output the clean live Program feed either as a separate resizable 16:9 window (ideal for Zoom/Teams/Discord screen sharing) or borderless fullscreen on any connected monitor, projector, or HDMI output.
 - **2 Freely Positionable & Resizable Overlays (`OV1` & `OV2`):**
   - Drag directly inside the `PROGRAM` monitor with the mouse, resize via 8 corner/edge handles, zoom with the mouse wheel, or use right-click layout presets (PiP corners, fullscreen, 16:9 snap).
