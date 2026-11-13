@@ -18,11 +18,12 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QPushButton, QLabel, QSlider, QSpinBox, QFileDialog,
     QInputDialog, QFrame, QScrollArea, QMessageBox, QDialog, QFormLayout,
-    QLineEdit, QMenu, QComboBox, QKeySequenceEdit, QSizePolicy
+    QLineEdit, QMenu, QComboBox, QKeySequenceEdit, QSizePolicy,
+    QPlainTextEdit, QCheckBox
 )
 
 from inputs import (
-    BaseInput, TestPatternInput, LowerThirdInput, ImageInput,
+    BaseInput, TestPatternInput, LowerThirdInput, TextSlideInput, ImageInput,
     VideoFileInput, V4L2CameraInput, WaylandPortalInput, WebBrowserInput,
     AudioInputBase, MicDeviceInput, SystemAudioInput, AudioFileInput,
     ReplaySourceInput, HighlightsInput,
@@ -1138,6 +1139,12 @@ class InputTileWidget(QFrame):
                 self.btn_cfg.setStyleSheet("padding: 1px; font-size: 9px;")
                 self.btn_cfg.clicked.connect(lambda: self.main_win.edit_lower_third(inp))
                 btn_row.addWidget(self.btn_cfg)
+            elif isinstance(inp, TextSlideInput):
+                self.btn_cfg = QPushButton("✎")
+                self.btn_cfg.setFixedWidth(18)
+                self.btn_cfg.setStyleSheet("padding: 1px; font-size: 9px;")
+                self.btn_cfg.clicked.connect(lambda: self.main_win.edit_text_slide(inp))
+                btn_row.addWidget(self.btn_cfg)
             elif isinstance(inp, WebBrowserInput):
                 self.btn_cfg = QPushButton("🌐")
                 self.btn_cfg.setFixedWidth(18)
@@ -1153,14 +1160,18 @@ class InputTileWidget(QFrame):
 
         layout.addLayout(btn_row)
 
-        # Transport & scrubber row for playable media (Video, Audio, Replay, Highlights)
+        # Transport & scrubber row for playable media (Video, Audio, Replay, Highlights, TextSlideInput)
         self.speed_buttons: list[tuple[float, QPushButton]] = []
         self.btn_hl_select = None
         self.btn_hl_speed = None
         self.btn_loop = None
         self.btn_return_prv = None
+        self.btn_prev_slide = None
+        self.btn_slide_select = None
+        self.btn_next_slide = None
+        self.btn_scroll_toggle = None
 
-        if isinstance(inp, (VideoFileInput, AudioFileInput, ReplaySourceInput, HighlightsInput)):
+        if isinstance(inp, (VideoFileInput, AudioFileInput, ReplaySourceInput, HighlightsInput, TextSlideInput)):
             trans_row = QHBoxLayout()
             trans_row.setSpacing(2)
 
@@ -1176,7 +1187,7 @@ class InputTileWidget(QFrame):
             self.btn_stop_media.clicked.connect(self._on_stop_clicked)
             trans_row.addWidget(self.btn_stop_media)
 
-            if isinstance(inp, (VideoFileInput, AudioFileInput, ReplaySourceInput)):
+            if isinstance(inp, (VideoFileInput, AudioFileInput, ReplaySourceInput, TextSlideInput)):
                 self.btn_loop = QPushButton("🔁")
                 self.btn_loop.setCheckable(True)
                 self.btn_loop.setChecked(bool(getattr(inp, "loop_enabled", False)))
@@ -1253,6 +1264,39 @@ class InputTileWidget(QFrame):
 
             layout.addLayout(hl_row)
 
+        elif isinstance(inp, TextSlideInput):
+            ts_row = QHBoxLayout()
+            ts_row.setSpacing(2)
+
+            self.btn_prev_slide = QPushButton("⏮")
+            self.btn_prev_slide.setFixedSize(18, 17)
+            self.btn_prev_slide.setStyleSheet("padding: 0px; font-size: 8px;")
+            self.btn_prev_slide.clicked.connect(self._on_slide_prev)
+            ts_row.addWidget(self.btn_prev_slide)
+
+            slides = inp.get_slides()
+            self.btn_slide_select = QPushButton(f"📄 #{inp.current_slide_idx + 1}/{len(slides)} ▾")
+            self.btn_slide_select.setFixedHeight(17)
+            self.btn_slide_select.setStyleSheet("padding: 0px 3px; font-size: 8px;")
+            self.btn_slide_select.clicked.connect(self._open_text_slide_menu)
+            ts_row.addWidget(self.btn_slide_select, 1)
+
+            self.btn_next_slide = QPushButton("⏭")
+            self.btn_next_slide.setFixedSize(18, 17)
+            self.btn_next_slide.setStyleSheet("padding: 0px; font-size: 8px;")
+            self.btn_next_slide.clicked.connect(self._on_slide_next)
+            ts_row.addWidget(self.btn_next_slide)
+
+            self.btn_scroll_toggle = QPushButton("📜")
+            self.btn_scroll_toggle.setCheckable(True)
+            self.btn_scroll_toggle.setChecked(bool(inp.scroll_enabled))
+            self.btn_scroll_toggle.setFixedSize(26, 17)
+            self._refresh_scroll_toggle_button()
+            self.btn_scroll_toggle.toggled.connect(self._on_scroll_mode_toggled)
+            ts_row.addWidget(self.btn_scroll_toggle)
+
+            layout.addLayout(ts_row)
+
         # Individual Audio Controls row inside the tile (if source has audio)
         self.mini_vu = None
         self.vol_slider = None
@@ -1309,6 +1353,13 @@ class InputTileWidget(QFrame):
         if self.btn_cfg:
             if isinstance(self.inp, LowerThirdInput):
                 self.btn_cfg.setToolTip(tr("Bauchbinden-Text bearbeiten", "Edit Lower Third text & template"))
+            elif isinstance(self.inp, TextSlideInput):
+                self.btn_cfg.setToolTip(
+                    tr(
+                        "Mehrzeiligen Texteditor, Folien, Design & Lauftext bearbeiten",
+                        "Edit multi-line text, slides, style & vertical scroll",
+                    )
+                )
             elif isinstance(self.inp, WebBrowserInput):
                 self.btn_cfg.setToolTip(tr("Browserfenster öffnen/bedienen", "Open / interact with browser window"))
         if self.btn_flip:
@@ -1340,6 +1391,21 @@ class InputTileWidget(QFrame):
             )
         if self.btn_hl_speed:
             self.btn_hl_speed.setToolTip(tr("Zeitlupen-Geschwindigkeit für Highlights wählen", "Choose slow-motion speed for Highlights"))
+        if self.btn_prev_slide:
+            self.btn_prev_slide.setToolTip(tr("Vorherige Textfolie (durch --- getrennt)", "Previous text slide (separated by ---)"))
+        if self.btn_next_slide:
+            self.btn_next_slide.setToolTip(tr("Nächste Textfolie (durch --- getrennt)", "Next text slide (separated by ---)"))
+        if self.btn_slide_select:
+            self.btn_slide_select.setToolTip(
+                tr("Textfolie auswählen oder mehrzeiligen Texteditor öffnen", "Select text slide or open multi-line text editor")
+            )
+        if self.btn_scroll_toggle:
+            self.btn_scroll_toggle.setToolTip(
+                tr(
+                    "Vertikalen Lauftext / Teleprompter-Modus (Auto-Scroll) ein-/ausschalten",
+                    "Toggle vertical scrolling text / Teleprompter mode on/off",
+                )
+            )
         if self.btn_mute_tile:
             self.btn_mute_tile.setToolTip(tr("Ton dieser Quelle stummschalten (Mute)", "Mute audio of this source"))
         if self.vol_slider:
@@ -1509,6 +1575,68 @@ class InputTileWidget(QFrame):
                 )
         menu.exec(self.btn_hl_select.mapToGlobal(self.btn_hl_select.rect().bottomLeft()))
 
+    def _on_slide_prev(self):
+        if isinstance(self.inp, TextSlideInput):
+            self.inp.prev_slide()
+            if self.main_win:
+                self.main_win._save_last_preset_silent()
+
+    def _on_slide_next(self):
+        if isinstance(self.inp, TextSlideInput):
+            self.inp.next_slide()
+            if self.main_win:
+                self.main_win._save_last_preset_silent()
+
+    def _on_scroll_mode_toggled(self, checked: bool):
+        if isinstance(self.inp, TextSlideInput):
+            self.inp.set_config(scroll_enabled=bool(checked))
+            self._refresh_scroll_toggle_button()
+            if self.main_win:
+                self.main_win._save_last_preset_silent()
+
+    def _refresh_scroll_toggle_button(self):
+        if not self.btn_scroll_toggle or not isinstance(self.inp, TextSlideInput):
+            return
+        is_scr = bool(self.inp.scroll_enabled)
+        if self.btn_scroll_toggle.isChecked() != is_scr:
+            self.btn_scroll_toggle.blockSignals(True)
+            self.btn_scroll_toggle.setChecked(is_scr)
+            self.btn_scroll_toggle.blockSignals(False)
+        self.btn_scroll_toggle.setStyleSheet(
+            "padding: 0px 2px; font-size: 9px; background-color: #1e6b9e; color: white; border: 1px solid #40a8f0;"
+            if is_scr else "padding: 0px 2px; font-size: 9px;"
+        )
+
+    def _open_text_slide_menu(self):
+        if not isinstance(self.inp, TextSlideInput):
+            return
+        menu = QMenu(self)
+        menu.addAction(
+            tr("✎ Mehrzeiligen Texteditor öffnen...", "✎ Open Multi-Line Text Editor..."),
+            lambda: self.main_win.edit_text_slide(self.inp),
+        )
+        menu.addSeparator()
+        p_scr = "✓ " if self.inp.scroll_enabled else "   "
+        menu.addAction(
+            tr(
+                f"{p_scr}📜 Vertikaler Lauftext / Teleprompter-Modus",
+                f"{p_scr}📜 Vertical Auto-Scroll / Teleprompter Mode",
+            ),
+            lambda: self._on_scroll_mode_toggled(not self.inp.scroll_enabled),
+        )
+        menu.addSeparator()
+        slides = self.inp.get_slides()
+        for idx, s_txt in enumerate(slides):
+            first_line = next((ln.strip() for ln in s_txt.splitlines() if ln.strip()), tr("(Leer)", "(Empty)"))
+            if len(first_line) > 32:
+                first_line = first_line[:32] + "…"
+            prefix = "▶ " if idx == self.inp.current_slide_idx else "   "
+            menu.addAction(
+                f"{prefix}{tr('Folie', 'Slide')} #{idx + 1}: {first_line}",
+                lambda i=idx: (self.inp.select_slide(i), self.main_win._save_last_preset_silent()),
+            )
+        menu.exec(self.btn_slide_select.mapToGlobal(self.btn_slide_select.rect().bottomLeft()))
+
     def set_index(self, index: int):
         self.index = index
         self.title_lbl.setText(f"{index + 1}: {self.inp.name[:18]}")
@@ -1543,6 +1671,16 @@ class InputTileWidget(QFrame):
             stxt = f"⏱{self.inp.playback_rate:g}×"
             if self.btn_hl_speed.text() != stxt:
                 self.btn_hl_speed.setText(stxt)
+
+        if self.btn_slide_select and isinstance(self.inp, TextSlideInput):
+            slides = self.inp.get_slides()
+            total_s = len(slides)
+            cur_s = min(total_s, self.inp.current_slide_idx + 1) if total_s > 0 else 1
+            stxt = f"📜 {self.inp.scroll_speed}px/s ▾" if self.inp.scroll_enabled else f"📄 #{cur_s}/{total_s} ▾"
+            if self.btn_slide_select.text() != stxt:
+                self.btn_slide_select.setText(stxt)
+        if self.btn_scroll_toggle and isinstance(self.inp, TextSlideInput):
+            self._refresh_scroll_toggle_button()
 
         if self.seek_slider is not None and hasattr(self.inp, "get_position_duration"):
             if self.btn_play_pause:
@@ -1592,7 +1730,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.4.2"
+    APP_VERSION = "0.5.0"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
@@ -2039,6 +2177,13 @@ class LiteMixMainWindow(QMainWindow):
         add_menu.addAction(
             tr("🏷️  Bauchbinde / Titel (Overlay)", "🏷️  Lower Third / Title (Overlay)"),
             self.add_lower_third_input,
+        )
+        add_menu.addAction(
+            tr(
+                "📝  Texttafel / Mehrzeiliger Text & Lauftext (Editor)",
+                "📝  Text Slide / Multi-Line Text & Scroller (Editor)",
+            ),
+            self.add_text_slide_input,
         )
         add_menu.addSeparator()
         add_menu.addAction(
@@ -2828,6 +2973,11 @@ class LiteMixMainWindow(QMainWindow):
         self.add_input(lt)
         self.edit_lower_third(lt)
 
+    def add_text_slide_input(self):
+        ts = TextSlideInput(width=self.mix_w, height=self.mix_h)
+        self.add_input(ts)
+        self.edit_text_slide(ts)
+
     def add_mic_device_input(self):
         sources, _ = list_audio_devices()
         labels = [lbl for _, lbl in sources]
@@ -2940,6 +3090,258 @@ class LiteMixMainWindow(QMainWindow):
             self._save_last_preset_silent()
         else:
             lt.set_texts(orig_title, orig_sub, template_id=orig_tpl)
+
+    def edit_text_slide(self, ts: TextSlideInput):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(
+            tr(
+                "📝 Mehrzeiliger Text- & Folien-Editor (Statisch & Lauftext)",
+                "📝 Multi-Line Text & Slide Editor (Static & Scroller)",
+            )
+        )
+        dlg.setMinimumWidth(680)
+        dlg.setMinimumHeight(540)
+        root_v = QVBoxLayout(dlg)
+        root_v.setSpacing(8)
+
+        orig_state = {
+            "name": ts.name,
+            "headline": ts.headline,
+            "body_text": ts.body_text,
+            "bg_style": ts.bg_style,
+            "align_mode": ts.align_mode,
+            "font_size": ts.font_size,
+            "color_preset": ts.color_preset,
+            "scroll_enabled": ts.scroll_enabled,
+            "scroll_speed": ts.scroll_speed,
+            "slide_idx": ts.current_slide_idx,
+        }
+
+        form = QFormLayout()
+        form.setSpacing(6)
+
+        e_name = QLineEdit(ts.name)
+        e_headline = QLineEdit(ts.headline)
+        e_headline.setPlaceholderText(
+            tr("Optionaler Titel oben (leer lassen für reinen Text)", "Optional top headline (leave empty for body text only)")
+        )
+        form.addRow(tr("Quellen-Name:", "Source Name:"), e_name)
+        form.addRow(tr("Überschrift / Titel:", "Headline / Title:"), e_headline)
+
+        # Toolbar above the multi-line text editor
+        editor_tools = QHBoxLayout()
+        lbl_editor_hint = QLabel(
+            tr(
+                "<b>Mehrzeiliger Text:</b> <i>(Tipp: Eine Zeile mit <code>---</code> trennt mehrere Folien)</i>",
+                "<b>Multi-Line Text:</b> <i>(Tip: A line with <code>---</code> separates multiple slides)</i>",
+            )
+        )
+        lbl_editor_hint.setStyleSheet("color: #b8c4d8; font-size: 11px;")
+        editor_tools.addWidget(lbl_editor_hint, 1)
+
+        btn_add_bullet = QPushButton(tr("• Aufzählung", "• Bullet"))
+        btn_add_SlideBreak = QPushButton(tr("➕ Folientrenner (---)", "➕ Slide Break (---)"))
+        editor_tools.addWidget(btn_add_bullet)
+        editor_tools.addWidget(btn_add_SlideBreak)
+        root_v.addLayout(form)
+        root_v.addLayout(editor_tools)
+
+        e_body = QPlainTextEdit()
+        e_body.setPlainText(ts.body_text)
+        e_body.setMinimumHeight(150)
+        e_body.setStyleSheet(
+            "QPlainTextEdit { background-color: #10141d; color: #f0f4fc; border: 1px solid #343e54; "
+            "border-radius: 5px; font-size: 12px; padding: 6px; font-family: 'Sans Serif'; }"
+        )
+        root_v.addWidget(e_body, 1)
+
+        def _insert_bullet():
+            cur = e_body.textCursor()
+            cur.insertText("• ")
+            e_body.setFocus()
+
+        def _insert_slide_break():
+            cur = e_body.textCursor()
+            cur.insertText("\n---\n")
+            e_body.setFocus()
+
+        btn_add_bullet.clicked.connect(_insert_bullet)
+        btn_add_SlideBreak.clicked.connect(_insert_slide_break)
+
+        # Style & Scroll configuration grid
+        cfg_grid = QGridLayout()
+        cfg_grid.setSpacing(6)
+
+        combo_bg = QComboBox()
+        for bg_id, bg_label in TextSlideInput.get_bg_styles():
+            combo_bg.addItem(bg_label, bg_id)
+        combo_bg.setCurrentIndex(ts.bg_style if 0 <= ts.bg_style < combo_bg.count() else 0)
+
+        combo_col = QComboBox()
+        for cid, clabel, _, _ in TextSlideInput.get_color_presets():
+            combo_col.addItem(clabel, cid)
+        combo_col.setCurrentIndex(ts.color_preset if 0 <= ts.color_preset < combo_col.count() else 0)
+
+        combo_align = QComboBox()
+        align_opts = TextSlideInput.get_align_options()
+        for a_key, a_lbl in align_opts:
+            combo_align.addItem(a_lbl, a_key)
+        cur_a_idx = next((i for i, (k, _) in enumerate(align_opts) if k == ts.align_mode), 0)
+        combo_align.setCurrentIndex(cur_a_idx)
+
+        spin_font = QSpinBox()
+        spin_font.setRange(16, 72)
+        spin_font.setSingleStep(2)
+        spin_font.setSuffix(" px")
+        spin_font.setValue(ts.font_size)
+
+        chk_scroll = QCheckBox(
+            tr(
+                "📜 Vertikaler Lauftext / Teleprompter / Abspann (Auto-Scroll)",
+                "📜 Vertical Scrolling Text / Teleprompter / Credits (Auto-Scroll)",
+            )
+        )
+        chk_scroll.setChecked(ts.scroll_enabled)
+
+        spin_speed = QSpinBox()
+        spin_speed.setRange(15, 240)
+        spin_speed.setSingleStep(5)
+        spin_speed.setSuffix(" px/s")
+        spin_speed.setValue(ts.scroll_speed)
+
+        cfg_grid.addWidget(QLabel(tr("Hintergrund / Tafel:", "Background / Slate:")), 0, 0)
+        cfg_grid.addWidget(combo_bg, 0, 1, 1, 3)
+
+        cfg_grid.addWidget(QLabel(tr("Farbschema:", "Color Theme:")), 1, 0)
+        cfg_grid.addWidget(combo_col, 1, 1)
+        cfg_grid.addWidget(QLabel(tr("Ausrichtung:", "Alignment:")), 1, 2)
+        cfg_grid.addWidget(combo_align, 1, 3)
+
+        cfg_grid.addWidget(QLabel(tr("Schriftgröße:", "Font Size:")), 2, 0)
+        cfg_grid.addWidget(spin_font, 2, 1)
+        cfg_grid.addWidget(QLabel(tr("Scroll-Tempo:", "Scroll Speed:")), 2, 2)
+        cfg_grid.addWidget(spin_speed, 2, 3)
+
+        cfg_grid.addWidget(chk_scroll, 3, 0, 1, 4)
+        root_v.addLayout(cfg_grid)
+
+        # Live preview row (16:9 thumbnail + slide switcher)
+        prv_row = QHBoxLayout()
+        preview_lbl = QLabel()
+        preview_lbl.setFixedSize(320, 180)
+        preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_lbl.setStyleSheet(
+            "background-color: #141923; border: 1px solid #38445e; border-radius: 6px;"
+        )
+        prv_row.addWidget(preview_lbl)
+
+        prv_side = QVBoxLayout()
+        lbl_slide_info = QLabel()
+        lbl_slide_info.setStyleSheet("color: #00d890; font-weight: bold; font-size: 11px;")
+        prv_side.addWidget(lbl_slide_info)
+
+        slide_nav_row = QHBoxLayout()
+        btn_prv_s = QPushButton(tr("⏮ Vorherige Folie", "⏮ Prev Slide"))
+        btn_nxt_s = QPushButton(tr("Nächste Folie ⏭", "Next Slide ⏭"))
+        slide_nav_row.addWidget(btn_prv_s)
+        slide_nav_row.addWidget(btn_nxt_s)
+        prv_side.addLayout(slide_nav_row)
+
+        lbl_usage_tip = QLabel(
+            tr(
+                "• <b>OV1 / OV2:</b> Mit transparentem Hintergrund direkt über das Kamerabild legen.<br>"
+                "• <b>PRV / CUT:</b> Als Vollbild-Texttafel oder Abspann schalten.<br>"
+                "• Auf der Kachel jederzeit per <b>⏮ / ⏭</b> Folien weiterblättern oder per <b>▶</b> Lauftext starten.",
+                "• <b>OV1 / OV2:</b> Overlay directly on top of live camera using transparent styles.<br>"
+                "• <b>PRV / CUT:</b> Switch as a fullscreen presentation slate or credits.<br>"
+                "• Use <b>⏮ / ⏭</b> on the tile to flip slides or <b>▶</b> to start scrolling.",
+            )
+        )
+        lbl_usage_tip.setWordWrap(True)
+        lbl_usage_tip.setStyleSheet("color: #98a4b8; font-size: 10px;")
+        prv_side.addWidget(lbl_usage_tip)
+        prv_side.addStretch()
+        prv_row.addLayout(prv_side, 1)
+        root_v.addLayout(prv_row)
+
+        def _apply_current_to_source():
+            ts.set_config(
+                name=e_name.text().strip() or tr("📝 Texttafel", "📝 Text Slide"),
+                headline=e_headline.text(),
+                body_text=e_body.toPlainText(),
+                bg_style=int(combo_bg.currentData() or 0),
+                align_mode=str(combo_align.currentData() or "center"),
+                font_size=int(spin_font.value()),
+                color_preset=int(combo_col.currentData() or 0),
+                scroll_enabled=bool(chk_scroll.isChecked()),
+                scroll_speed=int(spin_speed.value()),
+            )
+            slides = ts.get_slides()
+            lbl_slide_info.setText(
+                tr(
+                    f"Aktive Vorschau: Folie {ts.current_slide_idx + 1} von {len(slides)}",
+                    f"Active Preview: Slide {ts.current_slide_idx + 1} of {len(slides)}",
+                )
+            )
+            full_img = ts.get_frame()
+            if not full_img.isNull():
+                scaled = full_img.scaled(
+                    316, 176,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                preview_lbl.setPixmap(QPixmap.fromImage(scaled))
+            if ts in self.inputs:
+                idx = self.inputs.index(ts)
+                if 0 <= idx < len(self.input_tiles):
+                    self.input_tiles[idx].set_index(idx)
+
+        btn_prv_s.clicked.connect(lambda: (ts.prev_slide(), _apply_current_to_source()))
+        btn_nxt_s.clicked.connect(lambda: (ts.next_slide(), _apply_current_to_source()))
+        e_name.textChanged.connect(lambda _: _apply_current_to_source())
+        e_headline.textChanged.connect(lambda _: _apply_current_to_source())
+        e_body.textChanged.connect(_apply_current_to_source)
+        combo_bg.currentIndexChanged.connect(lambda _: _apply_current_to_source())
+        combo_col.currentIndexChanged.connect(lambda _: _apply_current_to_source())
+        combo_align.currentIndexChanged.connect(lambda _: _apply_current_to_source())
+        spin_font.valueChanged.connect(lambda _: _apply_current_to_source())
+        chk_scroll.toggled.connect(lambda _: _apply_current_to_source())
+        spin_speed.valueChanged.connect(lambda _: _apply_current_to_source())
+        _apply_current_to_source()
+
+        btn_row = QHBoxLayout()
+        btn_cancel = QPushButton(tr("Abbrechen", "Cancel"))
+        btn_live_apply = QPushButton(tr("⚡ Sofort speichern (Editor offen lassen)", "⚡ Save Live (Keep Editor Open)"))
+        btn_ok = QPushButton(tr("✓ Übernehmen & Schließen", "✓ Apply & Close"))
+        btn_ok.setObjectName("AddInputBtn")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_live_apply.clicked.connect(lambda: (_apply_current_to_source(), self._save_last_preset_silent()))
+        btn_ok.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_live_apply)
+        btn_row.addWidget(btn_ok, 1)
+        root_v.addLayout(btn_row)
+
+        if dlg.exec():
+            _apply_current_to_source()
+            self._save_last_preset_silent()
+        else:
+            ts.set_config(
+                name=orig_state["name"],
+                headline=orig_state["headline"],
+                body_text=orig_state["body_text"],
+                bg_style=orig_state["bg_style"],
+                align_mode=orig_state["align_mode"],
+                font_size=orig_state["font_size"],
+                color_preset=orig_state["color_preset"],
+                scroll_enabled=orig_state["scroll_enabled"],
+                scroll_speed=orig_state["scroll_speed"],
+            )
+            ts.select_slide(orig_state["slide_idx"])
+            if ts in self.inputs:
+                idx = self.inputs.index(ts)
+                if 0 <= idx < len(self.input_tiles):
+                    self.input_tiles[idx].set_index(idx)
 
     # ================= SWITCHING & TRANSITIONS =================
     def set_preview(self, idx: int):

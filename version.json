@@ -1,7 +1,7 @@
 {
-  "version": "0.4.2",
+  "version": "0.5.0",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "New in v0.4.2: Fixed crash when clicking the Replay dropdown button (▾) or editing Lower Third templates by adding bilingual get_speed_options() and get_templates() classmethods."
+  "changelog": "New in v0.5.0: Multi-Line Text & Slide Source (📝 TextSlideInput) with both Static Multi-Slide Mode (split slides via ---, ⏮/⏭ navigation) and Smooth Vertical Auto-Scroll / Teleprompter / Credits Mode (📜), 5 background styles (Alpha Overlay & Fullscreen Slates), and live editor."
 }

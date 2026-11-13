@@ -16,8 +16,9 @@ Specifically engineered for compact laptops and low-power CPUs (e.g. Intel Core 
   - **External `PROGRAM` Output (`🖥️` / `F11`):** Output the clean live Program feed either as a separate resizable 16:9 window (ideal for Zoom/Teams/Discord screen sharing) or borderless fullscreen on any connected monitor, projector, or HDMI output.
 - **2 Freely Positionable & Resizable Overlays (`OV1` & `OV2`):**
   - Drag directly inside the `PROGRAM` monitor with the mouse, resize via 8 corner/edge handles, zoom with the mouse wheel, or use right-click layout presets (PiP corners, fullscreen, 16:9 snap).
-- **3 Broadcast Lower Third Templates:**
-  - *Classic Broadcast*, *Modern Compact (Pill)*, and *Breaking / Sports Banner* with live preview and instant editing (`✎`).
+- **3 Broadcast Lower Third Templates & Multi-Line Text / Slide / Scroller Editor (`📝`):**
+  - **Lower Thirds:** *Classic Broadcast*, *Modern Compact (Pill)*, and *Breaking / Sports Banner* with live preview and instant editing (`✎`).
+  - **Multi-Line Text Slide & Vertical Scroller (`TextSlideInput`):** Rich multi-line text editor supporting multiple slides (separated by `---`, switchable via `⏮` / `⏭` on the tile), 5 background styles (alpha overlay box, 100% transparent floating text, or 3 fullscreen studio slates), 5 color themes, and smooth vertical Auto-Scroll / Teleprompter / Credits mode (`📜`).
 - **Manual Instant Replay & Slow-Motion Highlights (`h264_vaapi`):**
   - Start and stop replay recording at any time via **`⏺ REPLAY`** (`Ctrl+R`).
   - Automatically loads into **`⏪ Latest Replay`** (paused in `PREVIEW` at `00:00`, playable at `0.25×`, `0.5×`, `0.75×`, `1.0×`).

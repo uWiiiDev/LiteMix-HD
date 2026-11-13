@@ -372,6 +372,375 @@ class LowerThirdInput(BaseInput):
             self._frame = img
 
 
+class TextSlideInput(BaseInput):
+    """
+    Multi-line text & slide graphic source ('📝 Texttafel / Lauftext'):
+    Supports both:
+      1. Static / Multi-Slide Mode (split multiple slides via a line containing '---', 0% ongoing CPU load)
+      2. Smooth Vertical Auto-Scroll / Teleprompter / Credits Mode (adjustable speed, play/pause/seek/loop/return-to-preview)
+    Can be used either with alpha transparency as an overlay (OV1 / OV2) or as a fullscreen studio slate (PRV / PGM).
+    """
+
+    @classmethod
+    def get_bg_styles(cls) -> list[tuple[int, str]]:
+        return [
+            (0, tr("1: Transparente Overlay-Box (Alpha – ideal für OV1/OV2)", "1: Transparent Overlay Box (Alpha – ideal for OV1/OV2)")),
+            (1, tr("2: Komplett Transparent (Nur Text mit Schatten – für Untertitel/Lyrics)", "2: Fully Transparent (Floating Text with Shadow – Lyrics/Subtitles)")),
+            (2, tr("3: Studio Dunkelblau (Vollbild-Tafel)", "3: Studio Dark Blue (Fullscreen Slate)")),
+            (3, tr("4: Broadcast Rot / Anthrazit (News- & Info-Tafel)", "4: Broadcast Red / Charcoal (News & Info Slate)")),
+            (4, tr("5: Smaragd / Modern Grün (Talk- & Event-Tafel)", "5: Emerald / Modern Green (Talk & Event Slate)")),
+        ]
+
+    @classmethod
+    def get_color_presets(cls) -> list[tuple[int, str, QColor, QColor]]:
+        # (preset_id, label, body_color, accent_headline_color)
+        return [
+            (0, tr("Weiß & Cyan-Akzent", "White & Cyan Accent"), QColor(245, 248, 255), QColor(0, 212, 255)),
+            (1, tr("Warmweiß & Gold-Akzent", "Warm White & Gold Accent"), QColor(255, 250, 238), QColor(255, 196, 35)),
+            (2, tr("Mintweiß & Smaragd-Akzent", "Mint White & Emerald Accent"), QColor(240, 255, 248), QColor(40, 228, 145)),
+            (3, tr("Weiß & Korallrot-Akzent", "White & Coral Red Accent"), QColor(255, 246, 246), QColor(255, 82, 98)),
+            (4, tr("Reinweiß (Klassisch)", "Pure White (Classic)"), QColor(255, 255, 255), QColor(255, 255, 255)),
+        ]
+
+    @classmethod
+    def get_align_options(cls) -> list[tuple[str, str]]:
+        return [
+            ("center", tr("Zentriert", "Centered")),
+            ("left", tr("Linksbündig", "Left-aligned")),
+            ("right", tr("Rechtsbündig", "Right-aligned")),
+        ]
+
+    def __init__(
+        self,
+        name: str = "",
+        headline: str = "",
+        body_text: str = "",
+        width: int = 1280,
+        height: int = 720,
+        bg_style: int = 0,
+        align_mode: str = "center",
+        font_size: int = 32,
+        color_preset: int = 0,
+        scroll_enabled: bool = False,
+        scroll_speed: int = 55,
+        loop_enabled: bool = True,
+        return_to_preview_on_eos: bool = False,
+    ):
+        default_name = name.strip() or tr("📝 Texttafel", "📝 Text Slide")
+        super().__init__(default_name, width, height)
+        self.headline = headline if headline != "" else tr("Information & Programm", "Information & Schedule")
+        self.body_text = (
+            body_text
+            if body_text != ""
+            else tr(
+                "Willkommen bei der Live-Übertragung!\n"
+                "• Punkt 1: Begrüßung & Einführung\n"
+                "• Punkt 2: Hauptthema & Live-Demo\n"
+                "• Punkt 3: Fragen & Antworten\n"
+                "---\n"
+                "Zweite Folie (durch --- getrennt):\n"
+                "Vielen Dank fürs Zuschauen!",
+                "Welcome to the Live Broadcast!\n"
+                "• Part 1: Welcome & Introduction\n"
+                "• Part 2: Main Topic & Live Demo\n"
+                "• Part 3: Q&A Session\n"
+                "---\n"
+                "Second Slide (separated by ---):\n"
+                "Thank you for watching!",
+            )
+        )
+        self.bg_style = int(bg_style) % 5
+        self.align_mode = align_mode if align_mode in ("center", "left", "right") else "center"
+        self.font_size = max(16, min(72, int(font_size)))
+        self.color_preset = int(color_preset) % 5
+        self.scroll_enabled = bool(scroll_enabled)
+        self.scroll_speed = max(15, min(240, int(scroll_speed)))
+        self.loop_enabled = bool(loop_enabled)
+        self.return_to_preview_on_eos = bool(return_to_preview_on_eos)
+        self.eos_return_pending = False
+
+        self.current_slide_idx = 0
+        self.paused = True
+        self.scroll_offset = 0.0
+        self._total_scroll_distance = 600.0
+        self._last_tick_time = time.monotonic()
+        self._render_slide_frame()
+
+    def get_slides(self) -> list[str]:
+        """Splits body_text into slides by lines containing '---'."""
+        raw_lines = (self.body_text or "").splitlines()
+        slides: list[list[str]] = [[]]
+        for line in raw_lines:
+            if line.strip() == "---":
+                slides.append([])
+            else:
+                slides[-1].append(line)
+        cleaned = ["\n".join(chunk).strip("\r\n") for chunk in slides]
+        return cleaned if cleaned else [""]
+
+    def get_active_text(self) -> str:
+        slides = self.get_slides()
+        self.current_slide_idx = max(0, min(len(slides) - 1, self.current_slide_idx))
+        if self.scroll_enabled and len(slides) > 1:
+            return "\n\n───  ✦  ───\n\n".join(s for s in slides if s.strip())
+        return slides[self.current_slide_idx]
+
+    def select_slide(self, idx: int):
+        slides = self.get_slides()
+        self.current_slide_idx = max(0, min(len(slides) - 1, int(idx)))
+        self.scroll_offset = 0.0
+        self._render_slide_frame()
+
+    def next_slide(self):
+        slides = self.get_slides()
+        if slides:
+            self.current_slide_idx = (self.current_slide_idx + 1) % len(slides)
+            self.scroll_offset = 0.0
+            self._render_slide_frame()
+
+    def prev_slide(self):
+        slides = self.get_slides()
+        if slides:
+            self.current_slide_idx = (self.current_slide_idx - 1) % len(slides)
+            self.scroll_offset = 0.0
+            self._render_slide_frame()
+
+    def set_config(
+        self,
+        name: str | None = None,
+        headline: str | None = None,
+        body_text: str | None = None,
+        bg_style: int | None = None,
+        align_mode: str | None = None,
+        font_size: int | None = None,
+        color_preset: int | None = None,
+        scroll_enabled: bool | None = None,
+        scroll_speed: int | None = None,
+    ):
+        if name is not None and name.strip():
+            self.name = name.strip()
+        if headline is not None:
+            self.headline = headline
+        if body_text is not None:
+            self.body_text = body_text
+        if bg_style is not None:
+            self.bg_style = int(bg_style) % 5
+        if align_mode in ("center", "left", "right"):
+            self.align_mode = align_mode
+        if font_size is not None:
+            self.font_size = max(16, min(72, int(font_size)))
+        if color_preset is not None:
+            self.color_preset = int(color_preset) % 5
+        if scroll_enabled is not None:
+            was_scroll = self.scroll_enabled
+            self.scroll_enabled = bool(scroll_enabled)
+            if self.scroll_enabled and not was_scroll:
+                self.scroll_offset = 0.0
+                self._last_tick_time = time.monotonic()
+        if scroll_speed is not None:
+            self.scroll_speed = max(15, min(240, int(scroll_speed)))
+
+        slides = self.get_slides()
+        self.current_slide_idx = max(0, min(len(slides) - 1, self.current_slide_idx))
+        self._render_slide_frame()
+
+    def play(self):
+        if not self.scroll_enabled:
+            self.scroll_enabled = True
+        if self._total_scroll_distance > 1.0 and self.scroll_offset >= self._total_scroll_distance - 2.0:
+            self.scroll_offset = 0.0
+        self.paused = False
+        self._last_tick_time = time.monotonic()
+        self._render_slide_frame()
+
+    def pause(self):
+        self.paused = True
+        self._render_slide_frame()
+
+    def toggle_pause(self):
+        if self.paused:
+            self.play()
+        else:
+            self.pause()
+
+    def stop_playback(self):
+        self.paused = True
+        self.scroll_offset = 0.0
+        self._render_slide_frame()
+
+    def seek_seconds(self, target_sec: float):
+        dur = max(0.5, self._total_scroll_distance / max(15.0, float(self.scroll_speed)))
+        ratio = max(0.0, min(1.0, float(target_sec) / dur))
+        self.scroll_offset = ratio * self._total_scroll_distance
+        self._last_tick_time = time.monotonic()
+        self._render_slide_frame()
+
+    def get_position_duration(self) -> tuple[float, float]:
+        if not self.scroll_enabled:
+            return 0.0, 0.0
+        spd = max(15.0, float(self.scroll_speed))
+        dur = max(1.0, self._total_scroll_distance / spd)
+        pos = max(0.0, min(dur, self.scroll_offset / spd))
+        return pos, dur
+
+    def update(self):
+        if not self.scroll_enabled or self.paused:
+            self._last_tick_time = time.monotonic()
+            return
+        now = time.monotonic()
+        dt = max(0.0, min(0.2, now - self._last_tick_time))
+        self._last_tick_time = now
+        if dt <= 0.0:
+            return
+
+        self.scroll_offset += float(self.scroll_speed) * dt
+        if self.scroll_offset >= self._total_scroll_distance:
+            if self.loop_enabled:
+                self.scroll_offset = 0.0
+            else:
+                self.scroll_offset = self._total_scroll_distance
+                self.paused = True
+                if self.return_to_preview_on_eos:
+                    self.eos_return_pending = True
+        self._render_slide_frame()
+
+    def _render_slide_frame(self):
+        img = QImage(self.width, self.height, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(Qt.GlobalColor.transparent)
+        p = QPainter(img)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        presets = self.get_color_presets()
+        _, _, body_col, accent_col = presets[self.color_preset % len(presets)]
+
+        bx, by = 76.0, 52.0
+        bw, bh = float(self.width) - 152.0, float(self.height) - 104.0
+
+        # 1. Render background style
+        if self.bg_style == 0:
+            grad = QLinearGradient(bx, by, bx, by + bh)
+            grad.setColorAt(0.0, QColor(14, 20, 32, 228))
+            grad.setColorAt(1.0, QColor(10, 14, 24, 236))
+            p.setBrush(QBrush(grad))
+            p.setPen(QPen(QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 210), 2.5))
+            p.drawRoundedRect(QRectF(bx, by, bw, bh), 16.0, 16.0)
+        elif self.bg_style == 1:
+            pass
+        elif self.bg_style == 2:
+            bg_grad = QLinearGradient(0, 0, self.width, self.height)
+            bg_grad.setColorAt(0.0, QColor(12, 18, 34))
+            bg_grad.setColorAt(0.5, QColor(20, 32, 56))
+            bg_grad.setColorAt(1.0, QColor(10, 14, 26))
+            p.fillRect(0, 0, self.width, self.height, bg_grad)
+
+            p.setBrush(QColor(14, 22, 38, 215))
+            p.setPen(QPen(QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 190), 2.0))
+            p.drawRoundedRect(QRectF(bx, by, bw, bh), 16.0, 16.0)
+        elif self.bg_style == 3:
+            bg_grad = QLinearGradient(0, 0, self.width, self.height)
+            bg_grad.setColorAt(0.0, QColor(38, 12, 18))
+            bg_grad.setColorAt(0.5, QColor(24, 20, 30))
+            bg_grad.setColorAt(1.0, QColor(12, 12, 18))
+            p.fillRect(0, 0, self.width, self.height, bg_grad)
+
+            p.setBrush(QColor(20, 16, 24, 220))
+            p.setPen(QPen(QColor(235, 55, 65, 210), 2.5))
+            p.drawRoundedRect(QRectF(bx, by, bw, bh), 16.0, 16.0)
+        else:
+            bg_grad = QLinearGradient(0, 0, self.width, self.height)
+            bg_grad.setColorAt(0.0, QColor(10, 32, 26))
+            bg_grad.setColorAt(0.5, QColor(16, 38, 42))
+            bg_grad.setColorAt(1.0, QColor(10, 18, 24))
+            p.fillRect(0, 0, self.width, self.height, bg_grad)
+
+            p.setBrush(QColor(14, 26, 28, 220))
+            p.setPen(QPen(QColor(40, 220, 145, 200), 2.0))
+            p.drawRoundedRect(QRectF(bx, by, bw, bh), 16.0, 16.0)
+
+        if self.align_mode == "left":
+            h_align = Qt.AlignmentFlag.AlignLeft
+        elif self.align_mode == "right":
+            h_align = Qt.AlignmentFlag.AlignRight
+        else:
+            h_align = Qt.AlignmentFlag.AlignHCenter
+
+        pad_x = 48.0
+        inner_x = bx + pad_x
+        inner_w = bw - 2.0 * pad_x
+        body_top = by + 34.0
+
+        # 2. Optional Headline at top
+        headline_str = (self.headline or "").strip()
+        if headline_str:
+            head_font_sz = max(20, min(60, int(self.font_size * 1.18)))
+            head_font = QFont("Sans Serif", head_font_sz, QFont.Weight.Bold)
+            p.setFont(head_font)
+            head_rect = QRectF(inner_x, by + 22.0, inner_w, float(head_font_sz + 24))
+
+            p.setPen(QColor(0, 0, 0, 200))
+            p.drawText(head_rect.translated(2.0, 2.0), h_align | Qt.AlignmentFlag.AlignVCenter, headline_str)
+
+            p.setPen(accent_col)
+            p.drawText(head_rect, h_align | Qt.AlignmentFlag.AlignVCenter, headline_str)
+
+            div_y = head_rect.bottom() + 8.0
+            p.setPen(QPen(QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 145), 2.0))
+            p.drawLine(QPointF(inner_x, div_y), QPointF(inner_x + inner_w, div_y))
+            body_top = div_y + 18.0
+
+        body_bottom = by + bh - 28.0
+        body_h = max(80.0, body_bottom - body_top)
+        body_rect = QRectF(inner_x, body_top, inner_w, body_h)
+
+        # 3. Render multi-line body text (Static vs. Vertical Auto-Scroll)
+        active_text = self.get_active_text()
+        body_font = QFont("Sans Serif", self.font_size, QFont.Weight.DemiBold)
+        p.setFont(body_font)
+
+        wrap_flags = h_align | Qt.TextFlag.TextWordWrap
+        measured = p.boundingRect(QRectF(0.0, 0.0, inner_w, 20000.0), wrap_flags, active_text)
+        text_h = max(float(self.font_size + 10), float(measured.height()))
+
+        start_y_offset = body_h * 0.72
+        self._total_scroll_distance = max(120.0, start_y_offset + text_h + 24.0)
+
+        p.save()
+        p.setClipRect(body_rect)
+
+        if self.scroll_enabled:
+            draw_y = body_top + start_y_offset - self.scroll_offset
+            draw_rect = QRectF(inner_x, draw_y, inner_w, text_h + 40.0)
+            p.setPen(QColor(0, 0, 0, 210))
+            p.drawText(draw_rect.translated(2.0, 2.0), wrap_flags | Qt.AlignmentFlag.AlignTop, active_text)
+            p.setPen(body_col)
+            p.drawText(draw_rect, wrap_flags | Qt.AlignmentFlag.AlignTop, active_text)
+        else:
+            v_align = Qt.AlignmentFlag.AlignVCenter if text_h <= body_h else Qt.AlignmentFlag.AlignTop
+            p.setPen(QColor(0, 0, 0, 210))
+            p.drawText(body_rect.translated(2.0, 2.0), wrap_flags | v_align, active_text)
+            p.setPen(body_col)
+            p.drawText(body_rect, wrap_flags | v_align, active_text)
+
+        p.restore()
+
+        # 4. Slide counter badge if multiple slides exist in static mode
+        slides = self.get_slides()
+        if len(slides) > 1 and not self.scroll_enabled:
+            badge_txt = f"{self.current_slide_idx + 1} / {len(slides)}"
+            p.setFont(QFont("Sans Serif", 11, QFont.Weight.Bold))
+            b_rect = QRectF(bx + bw - 86.0, by + bh - 34.0, 68.0, 24.0)
+            p.setBrush(QColor(10, 14, 22, 190))
+            p.setPen(QPen(QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 150), 1.2))
+            p.drawRoundedRect(b_rect, 6.0, 6.0)
+            p.setPen(accent_col)
+            p.drawText(b_rect, Qt.AlignmentFlag.AlignCenter, badge_txt)
+
+        p.end()
+        with self._lock:
+            self._frame = img
+
+
 class ImageInput(BaseInput):
     """Static image source (PNG/JPG/SVG) including alpha transparency for overlays or fullscreen."""
 
@@ -1373,6 +1742,18 @@ def serialize_input(inp: BaseInput) -> dict:
         d["title"] = inp.title
         d["subtitle"] = inp.subtitle
         d["template_id"] = inp.template_id
+    elif isinstance(inp, TextSlideInput):
+        d["headline"] = inp.headline
+        d["body_text"] = inp.body_text
+        d["bg_style"] = inp.bg_style
+        d["align_mode"] = inp.align_mode
+        d["font_size"] = inp.font_size
+        d["color_preset"] = inp.color_preset
+        d["scroll_enabled"] = bool(inp.scroll_enabled)
+        d["scroll_speed"] = int(inp.scroll_speed)
+        d["loop_enabled"] = bool(inp.loop_enabled)
+        d["return_to_preview_on_eos"] = bool(inp.return_to_preview_on_eos)
+        d["current_slide_idx"] = int(inp.current_slide_idx)
     elif isinstance(inp, ImageInput):
         d["filepath"] = inp.filepath
     elif isinstance(inp, VideoFileInput):
@@ -1423,6 +1804,24 @@ def deserialize_input(data: dict, width: int = 1280, height: int = 720) -> BaseI
             height,
             template_id=int(data.get("template_id", 0)),
         )
+    elif t == "TextSlideInput":
+        inp = TextSlideInput(
+            name=name,
+            headline=data.get("headline", ""),
+            body_text=data.get("body_text", ""),
+            width=width,
+            height=height,
+            bg_style=int(data.get("bg_style", 0)),
+            align_mode=str(data.get("align_mode", "center")),
+            font_size=int(data.get("font_size", 32)),
+            color_preset=int(data.get("color_preset", 0)),
+            scroll_enabled=bool(data.get("scroll_enabled", False)),
+            scroll_speed=int(data.get("scroll_speed", 55)),
+            loop_enabled=bool(data.get("loop_enabled", True)),
+            return_to_preview_on_eos=bool(data.get("return_to_preview_on_eos", False)),
+        )
+        if "current_slide_idx" in data:
+            inp.select_slide(int(data.get("current_slide_idx", 0)))
     elif t == "ImageInput":
         fp = data.get("filepath", "")
         if fp and os.path.exists(fp):

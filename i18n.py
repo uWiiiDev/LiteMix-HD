@@ -129,7 +129,8 @@ HELP_HTML_DE = """
     <li><span class="key">PRV</span> – Lädt diese Quelle in das linke Vorschaufenster (Grüner Rahmen).</li>
     <li><span class="key">CUT</span> – Schaltet diese Quelle sofort live in das Programmfenster (Roter Rahmen).</li>
     <li><span class="key">OV1</span> / <span class="key">OV2</span> – Blendet diese Quelle als Overlay 1 oder Overlay 2 ein/aus.</li>
-    <li><span class="key">✎</span> (bei Bauchbinden) – Öffnet den Editor mit 3 Broadcast-Templates, Titel, Untertitel und Live-Vorschau.</li>
+    <li><span class="key">✎</span> (bei Bauchbinden &amp; Texttafeln) – Öffnet den Editor (für Bauchbinden mit 3 Broadcast-Templates bzw. den <b>mehrzeiligen Text- &amp; Folien-Editor</b> mit 5 Hintergrund-Stilen, Farbschemata, Folientrennern <span class="key">---</span> und Lauftext-Modus).</li>
+    <li><span class="key">⏮</span> / <span class="key">📄 #1/2 ▾</span> / <span class="key">⏭</span> / <span class="key">📜</span> (bei Texttafeln) – Blättert zwischen mehreren Textfolien (getrennt durch <span class="key">---</span>) oder schaltet den vertikalen Lauftext / Teleprompter-Modus (<span class="key">📜</span>) ein/aus.</li>
     <li><span class="key">⇄</span> (bei Kameras) – Spiegelt das Kamerabild horizontal.</li>
     <li><span class="key">🌐</span> (bei Browser-Quellen) – Öffnet das interaktive Browserfenster zum Bedienen/Scrollen.</li>
     <li><span class="key">▶/⏸</span>, <span class="key">⏹</span>, <span class="key">🔁</span>, <span class="key">↩</span> – Transportsteuerung, Endlosschleife (<span class="key">🔁</span>) und Auto-Rücksprung zur Vorschau (<span class="key">↩</span>).</li>
@@ -222,7 +223,8 @@ HELP_HTML_EN = """
     <li><span class="key">PRV</span> – Load this source into the left Preview monitor (Green border).</li>
     <li><span class="key">CUT</span> – Cut this source immediately to the live Program monitor (Red border).</li>
     <li><span class="key">OV1</span> / <span class="key">OV2</span> – Toggle this source on Overlay channel 1 or 2.</li>
-    <li><span class="key">✎</span> (Lower Thirds) – Open the Lower Third editor with 3 broadcast templates, title, subtitle, and live preview.</li>
+    <li><span class="key">✎</span> (Lower Thirds &amp; Text Slides) – Opens the editor (Lower Third editor with 3 broadcast templates, or the <b>Multi-Line Text &amp; Slide Editor</b> with 5 background styles, color themes, slide breaks <span class="key">---</span>, and vertical scroller).</li>
+    <li><span class="key">⏮</span> / <span class="key">📄 #1/2 ▾</span> / <span class="key">⏭</span> / <span class="key">📜</span> (Text Slides) – Flip between multiple text slides (separated by <span class="key">---</span>) or toggle the vertical Auto-Scroll / Teleprompter mode (<span class="key">📜</span>).</li>
     <li><span class="key">⇄</span> (Cameras) – Flip camera horizontally (mirror).</li>
     <li><span class="key">🌐</span> (Web Browser) – Open the interactive browser window to navigate or scroll.</li>
     <li><span class="key">▶/⏸</span>, <span class="key">⏹</span>, <span class="key">🔁</span>, <span class="key">↩</span> – Transport controls, Loop (<span class="key">🔁</span>), and Auto-Return to Preview (<span class="key">↩</span>).</li>
