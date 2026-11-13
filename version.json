@@ -1,7 +1,7 @@
 {
-  "version": "0.5.0",
+  "version": "0.6.0",
   "name": "LiteMix HD",
   "repo": "uWiiiDev/LiteMix-HD",
   "branch": "main",
-  "changelog": "New in v0.5.0: Multi-Line Text & Slide Source (📝 TextSlideInput) with both Static Multi-Slide Mode (split slides via ---, ⏮/⏭ navigation) and Smooth Vertical Auto-Scroll / Teleprompter / Credits Mode (📜), 5 background styles (Alpha Overlay & Fullscreen Slates), and live editor."
+  "changelog": "New in v0.6.0: Built-in File & Website Data Scraper (🌐 DataScraperEngine with HTML/CSS/JSON/RSS/CSV/Regex extraction & live placeholders {1}, {2}, {ticker}) and Horizontal News Ticker / Crawl Mode (📰) with Bottom Ticker Bar preset."
 }

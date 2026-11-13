@@ -1,7 +1,14 @@
 import os
+import re
+import io
+import csv
+import json
 import time
 import math
 import threading
+import urllib.request
+import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 import gi
 
 gi.require_version('Gst', '1.0')
@@ -372,13 +379,388 @@ class LowerThirdInput(BaseInput):
             self._frame = img
 
 
+class _SelectiveHTMLScraper(HTMLParser):
+    """Lightweight standard-library HTML parser for targeted tag, class, or #id scraping."""
+
+    IGNORED_TAGS = {"script", "style", "noscript", "svg", "head", "meta", "link"}
+
+    def __init__(self, selectors: list[str] | None = None):
+        super().__init__(convert_charrefs=True)
+        self.selectors = [s.strip() for s in (selectors or []) if s.strip()]
+        self._stack: list[tuple[str, set[str], str]] = []
+        self._ignored_depth = 0
+        self._capture_depth = 0
+        self._current_chunks: list[str] = []
+        self.results: list[str] = []
+
+    def _matches_any(self, tag: str, classes: set[str], elem_id: str) -> bool:
+        if not self.selectors:
+            return tag in ("h1", "h2", "h3", "h4", "li", "tr", "p")
+        for sel in self.selectors:
+            s = sel.lower()
+            if s.startswith("."):
+                if s[1:] in classes:
+                    return True
+            elif s.startswith("#"):
+                if elem_id == s[1:]:
+                    return True
+            elif "." in s:
+                t_part, c_part = s.split(".", 1)
+                if (not t_part or tag == t_part) and c_part in classes:
+                    return True
+            elif "#" in s:
+                t_part, i_part = s.split("#", 1)
+                if (not t_part or tag == t_part) and elem_id == i_part:
+                    return True
+            else:
+                if tag == s:
+                    return True
+        return False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
+        t = tag.lower()
+        if t in self.IGNORED_TAGS:
+            self._ignored_depth += 1
+            return
+        if self._ignored_depth > 0:
+            return
+
+        attr_dict = {k.lower(): (v or "") for k, v in attrs}
+        classes = {c.strip().lower() for c in attr_dict.get("class", "").split() if c.strip()}
+        elem_id = attr_dict.get("id", "").strip().lower()
+        self._stack.append((t, classes, elem_id))
+
+        if self._capture_depth > 0:
+            self._capture_depth += 1
+            if t in ("td", "th"):
+                self._current_chunks.append(" | ")
+            elif t == "br":
+                self._current_chunks.append(" ")
+        elif self._matches_any(t, classes, elem_id):
+            self._capture_depth = 1
+            self._current_chunks = []
+
+    def handle_endtag(self, tag: str):
+        t = tag.lower()
+        if t in self.IGNORED_TAGS:
+            if self._ignored_depth > 0:
+                self._ignored_depth -= 1
+            return
+        if self._ignored_depth > 0:
+            return
+        if self._stack:
+            self._stack.pop()
+        if self._capture_depth > 0:
+            self._capture_depth -= 1
+            if self._capture_depth == 0:
+                raw = "".join(self._current_chunks)
+                cleaned = re.sub(r"\s+", " ", raw).strip(" |\t\r\n")
+                cleaned = re.sub(r"(?:\s*\|\s*)+", " | ", cleaned)
+                if cleaned and cleaned not in self.results:
+                    self.results.append(cleaned)
+                self._current_chunks = []
+
+    def handle_data(self, data: str):
+        if self._ignored_depth == 0 and self._capture_depth > 0:
+            self._current_chunks.append(data)
+
+
+class DataScraperEngine:
+    """
+    Fetches and extracts structured text items from either a local file (.txt, .csv, .json, .xml, .html)
+    or a web URL (HTML page, RSS/Atom feed, JSON API, plain text).
+    """
+
+    @classmethod
+    def get_modes(cls) -> list[tuple[str, str]]:
+        return [
+            (
+                "auto",
+                tr(
+                    "Automatisch (Überschriften, Tabellen, Listen, RSS, JSON, CSV)",
+                    "Automatic (Headings, Tables, Lists, RSS, JSON, CSV)",
+                ),
+            ),
+            (
+                "css_tag",
+                tr(
+                    "HTML-Element / CSS-Klasse / #ID (z.B. h2, tr, .score, #news)",
+                    "HTML Tag / CSS Class / #ID (e.g. h2, tr, .score, #news)",
+                ),
+            ),
+            (
+                "json_rss",
+                tr(
+                    "JSON-Pfad / Schlüssel oder XML/RSS-Tag (z.B. title, data.score)",
+                    "JSON Key / Path or XML/RSS Tag (e.g. title, data.score)",
+                ),
+            ),
+            (
+                "lines_regex",
+                tr(
+                    "Zeilenfilter / Suchwort / Regex (z.B. 1-10 oder Tor|Ergebnis)",
+                    "Line Range / Keyword / Regex (e.g. 1-10 or Goal|Score)",
+                ),
+            ),
+        ]
+
+    @classmethod
+    def fetch_raw_content(cls, source: str) -> tuple[bool, str, str]:
+        """Returns (ok, raw_text, content_hint_or_error)."""
+        src = (source or "").strip()
+        if not src:
+            return False, "", tr("Keine URL oder Datei angegeben.", "No URL or file path specified.")
+
+        expanded = os.path.expanduser(src)
+        if os.path.isfile(expanded):
+            try:
+                with open(expanded, "rb") as f:
+                    raw_bytes = f.read(2 * 1024 * 1024)
+                try:
+                    text = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    text = raw_bytes.decode("latin-1", errors="replace")
+                ext = os.path.splitext(expanded)[1].lower()
+                return True, text, ext
+            except Exception as e:
+                return False, "", f"{e}"
+
+        url = src
+        if not url.startswith(("http://", "https://", "file://")):
+            if os.path.exists(expanded):
+                return False, "", tr("Pfad ist keine reguläre Datei.", "Path is not a regular file.")
+            url = "https://" + url
+
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) LiteMix-HD/0.5",
+                    "Accept": "text/html,application/xhtml+xml,application/json,application/xml,text/plain,*/*",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                raw_bytes = resp.read(2 * 1024 * 1024)
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+            try:
+                text = raw_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                text = raw_bytes.decode("latin-1", errors="replace")
+            return True, text, ctype
+        except Exception as e:
+            return False, "", f"{e}"
+
+    @classmethod
+    def scrape(cls, source: str, mode: str = "auto", selector: str = "") -> tuple[bool, list[str], str]:
+        """Fetches source and extracts clean string items according to mode and selector."""
+        ok, raw, hint_or_err = cls.fetch_raw_content(source)
+        if not ok:
+            return False, [], hint_or_err
+
+        sel = (selector or "").strip()
+        mode = mode if mode in ("auto", "css_tag", "json_rss", "lines_regex") else "auto"
+        items: list[str] = []
+
+        try:
+            if mode == "css_tag":
+                sels = [s.strip() for s in sel.split(",") if s.strip()] if sel else ["h1", "h2", "h3", "tr", "li", "p"]
+                parser = _SelectiveHTMLScraper(sels)
+                parser.feed(raw)
+                items = parser.results
+
+            elif mode == "json_rss":
+                stripped = raw.lstrip()
+                if stripped.startswith(("{", "[")):
+                    data = json.loads(stripped)
+                    items = cls._extract_json_items(data, sel)
+                else:
+                    items = cls._extract_xml_items(raw, sel)
+
+            elif mode == "lines_regex":
+                # First convert HTML to readable lines if raw looks like HTML
+                if "<html" in raw.lower() or "<body" in raw.lower() or "<div" in raw.lower():
+                    parser = _SelectiveHTMLScraper(["h1", "h2", "h3", "h4", "tr", "li", "p", "div"])
+                    parser.feed(raw)
+                    base_lines = parser.results
+                else:
+                    base_lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+                m_range = re.match(r"^(\d+)\s*-\s*(\d+)$", sel)
+                if m_range:
+                    i_start = max(1, int(m_range.group(1)))
+                    i_end = max(i_start, int(m_range.group(2)))
+                    items = base_lines[i_start - 1 : i_end]
+                elif sel:
+                    rx = re.compile(sel, re.IGNORECASE)
+                    items = [ln for ln in base_lines if rx.search(ln)]
+                else:
+                    items = base_lines
+
+            else:
+                # mode == "auto"
+                stripped = raw.lstrip()
+                if stripped.startswith(("{", "[")):
+                    try:
+                        data = json.loads(stripped)
+                        items = cls._extract_json_items(data, sel)
+                    except Exception:
+                        pass
+                if not items and (stripped.startswith("<?xml") or "<rss" in stripped[:400].lower() or "<feed" in stripped[:400].lower()):
+                    items = cls._extract_xml_items(raw, sel)
+                if not items and ("<html" in raw.lower() or "<body" in raw.lower() or "<table" in raw.lower() or "<h1" in raw.lower() or "<p" in raw.lower()):
+                    sels = [s.strip() for s in sel.split(",") if s.strip()] if sel else None
+                    parser = _SelectiveHTMLScraper(sels)
+                    parser.feed(raw)
+                    items = parser.results
+                if not items:
+                    if hint_or_err == ".csv" or ("," in raw and "\n" in raw and len(raw.splitlines()) > 1 and not "<" in raw[:100]):
+                        reader = csv.reader(io.StringIO(raw))
+                        for row in reader:
+                            cleaned_row = " | ".join(c.strip() for c in row if c.strip())
+                            if cleaned_row:
+                                items.append(cleaned_row)
+                    else:
+                        items = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+                    if sel:
+                        rx = re.compile(sel, re.IGNORECASE)
+                        items = [ln for ln in items if rx.search(ln)]
+        except Exception as e:
+            return False, [], f"{e}"
+
+        items = [it for it in items if it][:80]
+        if not items:
+            return False, [], tr("Keine passenden Einträge gefunden.", "No matching entries found.")
+        return (
+            True,
+            items,
+            tr(
+                f"✓ {len(items)} Einträge erfolgreich geladen ({time.strftime('%H:%M:%S')})",
+                f"✓ {len(items)} entries loaded ({time.strftime('%H:%M:%S')})",
+            ),
+        )
+
+    @classmethod
+    def _extract_json_items(cls, data, selector: str = "") -> list[str]:
+        out: list[str] = []
+        if selector:
+            # Traverse dot path if applicable, or recursively match key name
+            parts = [p for p in selector.split(".") if p]
+            cur = data
+            path_ok = True
+            for p in parts:
+                if isinstance(cur, dict) and p in cur:
+                    cur = cur[p]
+                elif isinstance(cur, list) and p.isdigit() and 0 <= int(p) < len(cur):
+                    cur = cur[int(p)]
+                else:
+                    path_ok = False
+                    break
+            if path_ok and cur is not data:
+                if isinstance(cur, list):
+                    for elem in cur:
+                        out.append(cls._fmt_json_val(elem))
+                elif isinstance(cur, dict):
+                    for k, v in cur.items():
+                        out.append(f"{k}: {cls._fmt_json_val(v)}")
+                else:
+                    out.append(str(cur))
+                return [x for x in out if x]
+
+            # Otherwise search recursively for keys matching selector
+            key_low = selector.lower()
+
+            def _walk(node):
+                if isinstance(node, dict):
+                    for k, v in node.items():
+                        if key_low in str(k).lower() and not isinstance(v, (dict, list)):
+                            out.append(f"{v}")
+                        else:
+                            _walk(v)
+                elif isinstance(node, list):
+                    for item in node:
+                        _walk(item)
+
+            _walk(data)
+            return [x for x in out if x]
+
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if isinstance(v, (str, int, float, bool)):
+                    out.append(f"{k}: {v}")
+                elif isinstance(v, list):
+                    for elem in v[:30]:
+                        out.append(cls._fmt_json_val(elem))
+                elif isinstance(v, dict):
+                    summary = " | ".join(f"{sk}: {sv}" for sk, sv in list(v.items())[:5] if not isinstance(sv, (dict, list)))
+                    if summary:
+                        out.append(f"{k} -> {summary}")
+        elif isinstance(data, list):
+            for elem in data[:50]:
+                out.append(cls._fmt_json_val(elem))
+        return [x for x in out if x]
+
+    @staticmethod
+    def _fmt_json_val(val) -> str:
+        if isinstance(val, dict):
+            parts = []
+            for k, v in list(val.items())[:6]:
+                if not isinstance(v, (dict, list)):
+                    parts.append(f"{k}: {v}")
+            return " | ".join(parts) if parts else json.dumps(val, ensure_ascii=False)
+        return str(val).strip()
+
+    @classmethod
+    def _extract_xml_items(cls, raw_xml: str, selector: str = "") -> list[str]:
+        out: list[str] = []
+        root = ET.fromstring(raw_xml)
+        tag_filter = selector.strip().lower() if selector else ""
+        if tag_filter:
+            for elem in root.iter():
+                local_name = elem.tag.split("}")[-1].lower()
+                if local_name == tag_filter:
+                    txt = "".join(elem.itertext()).strip()
+                    txt = re.sub(r"\s+", " ", txt)
+                    if txt:
+                        out.append(txt)
+            return out
+
+        # Default RSS / Atom item extraction
+        for elem in root.iter():
+            local_name = elem.tag.split("}")[-1].lower()
+            if local_name in ("item", "entry"):
+                title_txt = ""
+                desc_txt = ""
+                for child in elem:
+                    cname = child.tag.split("}")[-1].lower()
+                    if cname == "title" and child.text:
+                        title_txt = re.sub(r"\s+", " ", child.text).strip()
+                    elif cname in ("description", "summary") and child.text:
+                        # Strip inline HTML from RSS description
+                        p = _SelectiveHTMLScraper(["p", "div", "span"])
+                        p.feed(child.text)
+                        raw_d = " ".join(p.results) if p.results else re.sub(r"<[^>]+>", " ", child.text)
+                        desc_txt = re.sub(r"\s+", " ", raw_d).strip()
+                if title_txt and desc_txt and desc_txt != title_txt:
+                    out.append(f"{title_txt} — {desc_txt[:140]}")
+                elif title_txt:
+                    out.append(title_txt)
+        if not out:
+            for elem in root.iter():
+                txt = (elem.text or "").strip()
+                if txt and len(txt) > 1:
+                    local_name = elem.tag.split("}")[-1]
+                    out.append(f"{local_name}: {txt}")
+        return out
+
+
 class TextSlideInput(BaseInput):
     """
-    Multi-line text & slide graphic source ('📝 Texttafel / Lauftext'):
-    Supports both:
-      1. Static / Multi-Slide Mode (split multiple slides via a line containing '---', 0% ongoing CPU load)
-      2. Smooth Vertical Auto-Scroll / Teleprompter / Credits Mode (adjustable speed, play/pause/seek/loop/return-to-preview)
-    Can be used either with alpha transparency as an overlay (OV1 / OV2) or as a fullscreen studio slate (PRV / PGM).
+    Multi-line text, slide, ticker & web/file scraper source ('📝 Texttafel / Lauftext / Ticker'):
+    Supports three display modes:
+      1. Static / Multi-Slide Mode ('none' - split multiple slides via a line containing '---', 0% ongoing CPU load)
+      2. Smooth Vertical Auto-Scroll / Teleprompter / Credits Mode ('vertical')
+      3. Smooth Horizontal News Ticker / Crawl Mode ('horizontal' - right-to-left crawl)
+    Includes an integrated File & Website Scraper with optional background auto-refresh and {1}, {2}, {all}, {ticker} placeholders.
     """
 
     @classmethod
@@ -389,6 +771,15 @@ class TextSlideInput(BaseInput):
             (2, tr("3: Studio Dunkelblau (Vollbild-Tafel)", "3: Studio Dark Blue (Fullscreen Slate)")),
             (3, tr("4: Broadcast Rot / Anthrazit (News- & Info-Tafel)", "4: Broadcast Red / Charcoal (News & Info Slate)")),
             (4, tr("5: Smaragd / Modern Grün (Talk- & Event-Tafel)", "5: Emerald / Modern Green (Talk & Event Slate)")),
+            (5, tr("6: Nachrichten-Ticker / Laufband unten (Alpha – ideal für OV1/OV2)", "6: News Ticker / Bottom Crawl Bar (Alpha – ideal for OV1/OV2)")),
+        ]
+
+    @classmethod
+    def get_scroll_modes(cls) -> list[tuple[str, str]]:
+        return [
+            ("none", tr("📄 Statisch / Folien-Modus (0% CPU)", "📄 Static / Slide Mode (0% CPU)")),
+            ("vertical", tr("📜 Vertikaler Lauftext / Abspann (Von unten nach oben)", "📜 Vertical Auto-Scroll / Credits (Bottom to Top)")),
+            ("horizontal", tr("📰 Horizontaler Nachrichten-Ticker (Von rechts nach links)", "📰 Horizontal News Ticker / Crawl (Right to Left)")),
         ]
 
     @classmethod
@@ -422,9 +813,15 @@ class TextSlideInput(BaseInput):
         font_size: int = 32,
         color_preset: int = 0,
         scroll_enabled: bool = False,
-        scroll_speed: int = 55,
+        scroll_mode: str | None = None,
+        scroll_speed: int = 65,
         loop_enabled: bool = True,
         return_to_preview_on_eos: bool = False,
+        scraper_source: str = "",
+        scraper_mode: str = "auto",
+        scraper_selector: str = "",
+        scraper_auto_refresh: bool = False,
+        scraper_interval_sec: int = 30,
     ):
         default_name = name.strip() or tr("📝 Texttafel", "📝 Text Slide")
         super().__init__(default_name, width, height)
@@ -449,15 +846,32 @@ class TextSlideInput(BaseInput):
                 "Thank you for watching!",
             )
         )
-        self.bg_style = int(bg_style) % 5
+        self.bg_style = int(bg_style) % 6
         self.align_mode = align_mode if align_mode in ("center", "left", "right") else "center"
         self.font_size = max(16, min(72, int(font_size)))
         self.color_preset = int(color_preset) % 5
-        self.scroll_enabled = bool(scroll_enabled)
-        self.scroll_speed = max(15, min(240, int(scroll_speed)))
+
+        if scroll_mode in ("none", "vertical", "horizontal"):
+            self.scroll_mode = scroll_mode
+        else:
+            self.scroll_mode = "vertical" if scroll_enabled else "none"
+        self.scroll_enabled = self.scroll_mode in ("vertical", "horizontal")
+        self.scroll_speed = max(15, min(300, int(scroll_speed)))
         self.loop_enabled = bool(loop_enabled)
         self.return_to_preview_on_eos = bool(return_to_preview_on_eos)
         self.eos_return_pending = False
+
+        # File / Website Data Scraper state
+        self.scraper_source = str(scraper_source or "").strip()
+        self.scraper_mode = scraper_mode if scraper_mode in ("auto", "css_tag", "json_rss", "lines_regex") else "auto"
+        self.scraper_selector = str(scraper_selector or "").strip()
+        self.scraper_auto_refresh = bool(scraper_auto_refresh)
+        self.scraper_interval_sec = max(5, min(3600, int(scraper_interval_sec)))
+        self.scraped_items: list[str] = []
+        self.last_scrape_status: str = ""
+        self._scrape_in_progress = False
+        self._scrape_dirty = False
+        self._last_scrape_time = 0.0
 
         self.current_slide_idx = 0
         self.paused = True
@@ -465,10 +879,67 @@ class TextSlideInput(BaseInput):
         self._total_scroll_distance = 600.0
         self._last_tick_time = time.monotonic()
         self._render_slide_frame()
+        if self.scraper_source and self.scraper_auto_refresh:
+            self.trigger_scrape_async()
+
+    def _resolve_placeholders(self, text: str) -> str:
+        """Substitutes {1}, {2}, ..., {all}, {ticker}, {slides} with the latest scraped items."""
+        if not text or not self.scraped_items or "{" not in text:
+            return text
+        out = text
+        if "{all}" in out:
+            out = out.replace("{all}", "\n".join(self.scraped_items))
+        if "{ticker}" in out:
+            out = out.replace("{ticker}", "   +++   ".join(self.scraped_items))
+        if "{slides}" in out:
+            out = out.replace("{slides}", "\n---\n".join(self.scraped_items))
+
+        def _repl_num(match):
+            idx = int(match.group(1)) - 1
+            if 0 <= idx < len(self.scraped_items):
+                return self.scraped_items[idx]
+            return match.group(0)
+
+        return re.sub(r"\{(\d+)\}", _repl_num, out)
+
+    def trigger_scrape_sync(self) -> tuple[bool, list[str], str]:
+        """Synchronously scrapes the configured URL or local file and updates the frame."""
+        ok, items, msg = DataScraperEngine.scrape(
+            self.scraper_source, self.scraper_mode, self.scraper_selector
+        )
+        self._last_scrape_time = time.monotonic()
+        self.last_scrape_status = msg
+        if ok:
+            self.scraped_items = items
+            self._render_slide_frame()
+        return ok, items, msg
+
+    def trigger_scrape_async(self):
+        """Runs the file/website scraper in a background daemon thread without blocking the 30 FPS render loop."""
+        if self._scrape_in_progress or not self.scraper_source.strip():
+            return
+        self._scrape_in_progress = True
+        self._last_scrape_time = time.monotonic()
+        src = self.scraper_source
+        mode = self.scraper_mode
+        sel = self.scraper_selector
+
+        def _worker():
+            try:
+                ok, items, msg = DataScraperEngine.scrape(src, mode, sel)
+                self.last_scrape_status = msg
+                if ok and items != self.scraped_items:
+                    self.scraped_items = items
+                    self._scrape_dirty = True
+            finally:
+                self._scrape_in_progress = False
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def get_slides(self) -> list[str]:
-        """Splits body_text into slides by lines containing '---'."""
-        raw_lines = (self.body_text or "").splitlines()
+        """Splits resolved body_text into slides by lines containing '---'."""
+        resolved_body = self._resolve_placeholders(self.body_text or "")
+        raw_lines = resolved_body.splitlines()
         slides: list[list[str]] = [[]]
         for line in raw_lines:
             if line.strip() == "---":
@@ -481,8 +952,17 @@ class TextSlideInput(BaseInput):
     def get_active_text(self) -> str:
         slides = self.get_slides()
         self.current_slide_idx = max(0, min(len(slides) - 1, self.current_slide_idx))
-        if self.scroll_enabled and len(slides) > 1:
+        if self.scroll_mode == "vertical" and len(slides) > 1:
             return "\n\n───  ✦  ───\n\n".join(s for s in slides if s.strip())
+        if self.scroll_mode == "horizontal":
+            # Flatten all non-empty lines into a single horizontal ticker line separated by '   +++   '
+            all_lines = []
+            for s in slides:
+                for ln in s.splitlines():
+                    c = ln.strip()
+                    if c:
+                        all_lines.append(c)
+            return "   +++   ".join(all_lines) if all_lines else ""
         return slides[self.current_slide_idx]
 
     def select_slide(self, idx: int):
@@ -505,6 +985,13 @@ class TextSlideInput(BaseInput):
             self.scroll_offset = 0.0
             self._render_slide_frame()
 
+    def cycle_scroll_mode(self) -> str:
+        """Cycles between 'none' (Static) -> 'vertical' (Vertical Scroll) -> 'horizontal' (Horizontal Ticker)."""
+        order = ["none", "vertical", "horizontal"]
+        nxt = order[(order.index(self.scroll_mode) + 1) % len(order)] if self.scroll_mode in order else "vertical"
+        self.set_config(scroll_mode=nxt)
+        return self.scroll_mode
+
     def set_config(
         self,
         name: str | None = None,
@@ -515,7 +1002,13 @@ class TextSlideInput(BaseInput):
         font_size: int | None = None,
         color_preset: int | None = None,
         scroll_enabled: bool | None = None,
+        scroll_mode: str | None = None,
         scroll_speed: int | None = None,
+        scraper_source: str | None = None,
+        scraper_mode: str | None = None,
+        scraper_selector: str | None = None,
+        scraper_auto_refresh: bool | None = None,
+        scraper_interval_sec: int | None = None,
     ):
         if name is not None and name.strip():
             self.name = name.strip()
@@ -524,28 +1017,50 @@ class TextSlideInput(BaseInput):
         if body_text is not None:
             self.body_text = body_text
         if bg_style is not None:
-            self.bg_style = int(bg_style) % 5
+            self.bg_style = int(bg_style) % 6
         if align_mode in ("center", "left", "right"):
             self.align_mode = align_mode
         if font_size is not None:
             self.font_size = max(16, min(72, int(font_size)))
         if color_preset is not None:
             self.color_preset = int(color_preset) % 5
-        if scroll_enabled is not None:
-            was_scroll = self.scroll_enabled
+
+        prev_mode = self.scroll_mode
+        if scroll_mode in ("none", "vertical", "horizontal"):
+            self.scroll_mode = scroll_mode
+            self.scroll_enabled = self.scroll_mode in ("vertical", "horizontal")
+        elif scroll_enabled is not None:
             self.scroll_enabled = bool(scroll_enabled)
-            if self.scroll_enabled and not was_scroll:
-                self.scroll_offset = 0.0
-                self._last_tick_time = time.monotonic()
+            if not self.scroll_enabled:
+                self.scroll_mode = "none"
+            elif self.scroll_mode == "none":
+                self.scroll_mode = "horizontal" if self.bg_style == 5 else "vertical"
+
+        if self.scroll_mode != prev_mode:
+            self.scroll_offset = 0.0
+            self._last_tick_time = time.monotonic()
+
         if scroll_speed is not None:
-            self.scroll_speed = max(15, min(240, int(scroll_speed)))
+            self.scroll_speed = max(15, min(300, int(scroll_speed)))
+
+        if scraper_source is not None:
+            self.scraper_source = scraper_source.strip()
+        if scraper_mode in ("auto", "css_tag", "json_rss", "lines_regex"):
+            self.scraper_mode = scraper_mode
+        if scraper_selector is not None:
+            self.scraper_selector = scraper_selector.strip()
+        if scraper_auto_refresh is not None:
+            self.scraper_auto_refresh = bool(scraper_auto_refresh)
+        if scraper_interval_sec is not None:
+            self.scraper_interval_sec = max(5, min(3600, int(scraper_interval_sec)))
 
         slides = self.get_slides()
         self.current_slide_idx = max(0, min(len(slides) - 1, self.current_slide_idx))
         self._render_slide_frame()
 
     def play(self):
-        if not self.scroll_enabled:
+        if self.scroll_mode == "none":
+            self.scroll_mode = "horizontal" if self.bg_style == 5 else "vertical"
             self.scroll_enabled = True
         if self._total_scroll_distance > 1.0 and self.scroll_offset >= self._total_scroll_distance - 2.0:
             self.scroll_offset = 0.0
@@ -584,10 +1099,23 @@ class TextSlideInput(BaseInput):
         return pos, dur
 
     def update(self):
-        if not self.scroll_enabled or self.paused:
-            self._last_tick_time = time.monotonic()
-            return
         now = time.monotonic()
+        # Check background scraper auto-refresh timer
+        if (
+            self.scraper_auto_refresh
+            and self.scraper_source
+            and not self._scrape_in_progress
+            and (now - self._last_scrape_time) >= float(self.scraper_interval_sec)
+        ):
+            self.trigger_scrape_async()
+
+        if self._scrape_dirty:
+            self._scrape_dirty = False
+            self._render_slide_frame()
+
+        if not self.scroll_enabled or self.paused:
+            self._last_tick_time = now
+            return
         dt = max(0.0, min(0.2, now - self._last_tick_time))
         self._last_tick_time = now
         if dt <= 0.0:
@@ -613,11 +1141,74 @@ class TextSlideInput(BaseInput):
 
         presets = self.get_color_presets()
         _, _, body_col, accent_col = presets[self.color_preset % len(presets)]
+        headline_str = self._resolve_placeholders((self.headline or "").strip())
+        active_text = self.get_active_text()
+
+        # Special Broadcast Bottom News Ticker Bar (bg_style == 5)
+        if self.bg_style == 5:
+            bar_h = max(52.0, min(96.0, float(self.font_size + 24)))
+            bar_y = float(self.height) - bar_h - 26.0
+            bar_x = 0.0
+            bar_w = float(self.width)
+
+            bar_grad = QLinearGradient(0.0, bar_y, 0.0, bar_y + bar_h)
+            bar_grad.setColorAt(0.0, QColor(14, 20, 32, 242))
+            bar_grad.setColorAt(1.0, QColor(8, 12, 20, 248))
+            p.fillRect(QRectF(bar_x, bar_y, bar_w, bar_h), bar_grad)
+
+            # Top and bottom accent lines
+            p.setPen(QPen(accent_col, 2.5))
+            p.drawLine(QPointF(0.0, bar_y), QPointF(bar_w, bar_y))
+            p.setPen(QPen(QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 140), 1.5))
+            p.drawLine(QPointF(0.0, bar_y + bar_h), QPointF(bar_w, bar_y + bar_h))
+
+            ticker_left = 24.0
+            if headline_str:
+                head_font = QFont("Sans Serif", max(14, int(self.font_size * 0.72)), QFont.Weight.Bold)
+                p.setFont(head_font)
+                hm = p.boundingRect(QRectF(0, 0, 500, bar_h), Qt.AlignmentFlag.AlignCenter, headline_str)
+                badge_w = max(110.0, min(380.0, float(hm.width()) + 44.0))
+                p.fillRect(QRectF(0.0, bar_y, badge_w, bar_h), accent_col)
+                p.setPen(QColor(10, 14, 22))
+                p.drawText(QRectF(14.0, bar_y, badge_w - 28.0, bar_h), Qt.AlignmentFlag.AlignCenter, headline_str)
+                ticker_left = badge_w + 18.0
+
+            ticker_w = max(120.0, bar_w - ticker_left - 18.0)
+            ticker_rect = QRectF(ticker_left, bar_y, ticker_w, bar_h)
+
+            body_font = QFont("Sans Serif", self.font_size, QFont.Weight.DemiBold)
+            p.setFont(body_font)
+            single_line = "   +++   ".join(ln.strip() for ln in active_text.splitlines() if ln.strip())
+            m_rect = p.boundingRect(QRectF(0.0, 0.0, 100000.0, bar_h), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, single_line)
+            text_w = max(80.0, float(m_rect.width()))
+
+            start_x_offset = ticker_w * 0.85
+            self._total_scroll_distance = max(160.0, start_x_offset + text_w + 40.0)
+
+            p.save()
+            p.setClipRect(ticker_rect)
+            if self.scroll_mode == "horizontal":
+                draw_x = ticker_left + start_x_offset - self.scroll_offset
+                draw_r = QRectF(draw_x, bar_y, text_w + 60.0, bar_h)
+                p.setPen(QColor(0, 0, 0, 210))
+                p.drawText(draw_r.translated(2.0, 2.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, single_line)
+                p.setPen(body_col)
+                p.drawText(draw_r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, single_line)
+            else:
+                p.setPen(QColor(0, 0, 0, 210))
+                p.drawText(ticker_rect.translated(2.0, 2.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, single_line)
+                p.setPen(body_col)
+                p.drawText(ticker_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, single_line)
+            p.restore()
+            p.end()
+            with self._lock:
+                self._frame = img
+            return
 
         bx, by = 76.0, 52.0
         bw, bh = float(self.width) - 152.0, float(self.height) - 104.0
 
-        # 1. Render background style
+        # 1. Render background style (0..4)
         if self.bg_style == 0:
             grad = QLinearGradient(bx, by, bx, by + bh)
             grad.setColorAt(0.0, QColor(14, 20, 32, 228))
@@ -671,7 +1262,6 @@ class TextSlideInput(BaseInput):
         body_top = by + 34.0
 
         # 2. Optional Headline at top
-        headline_str = (self.headline or "").strip()
         if headline_str:
             head_font_sz = max(20, min(60, int(self.font_size * 1.18)))
             head_font = QFont("Sans Serif", head_font_sz, QFont.Weight.Bold)
@@ -693,22 +1283,35 @@ class TextSlideInput(BaseInput):
         body_h = max(80.0, body_bottom - body_top)
         body_rect = QRectF(inner_x, body_top, inner_w, body_h)
 
-        # 3. Render multi-line body text (Static vs. Vertical Auto-Scroll)
-        active_text = self.get_active_text()
+        # 3. Render body text (Static vs. Vertical Auto-Scroll vs. Horizontal Ticker)
         body_font = QFont("Sans Serif", self.font_size, QFont.Weight.DemiBold)
         p.setFont(body_font)
-
-        wrap_flags = h_align | Qt.TextFlag.TextWordWrap
-        measured = p.boundingRect(QRectF(0.0, 0.0, inner_w, 20000.0), wrap_flags, active_text)
-        text_h = max(float(self.font_size + 10), float(measured.height()))
-
-        start_y_offset = body_h * 0.72
-        self._total_scroll_distance = max(120.0, start_y_offset + text_h + 24.0)
 
         p.save()
         p.setClipRect(body_rect)
 
-        if self.scroll_enabled:
+        if self.scroll_mode == "horizontal":
+            single_line = "   +++   ".join(ln.strip() for ln in active_text.splitlines() if ln.strip())
+            m_rect = p.boundingRect(
+                QRectF(0.0, 0.0, 100000.0, body_h),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                single_line,
+            )
+            text_w = max(80.0, float(m_rect.width()))
+            start_x_offset = inner_w * 0.85
+            self._total_scroll_distance = max(160.0, start_x_offset + text_w + 40.0)
+            draw_x = inner_x + start_x_offset - self.scroll_offset
+            draw_r = QRectF(draw_x, body_top, text_w + 60.0, body_h)
+            p.setPen(QColor(0, 0, 0, 210))
+            p.drawText(draw_r.translated(2.0, 2.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, single_line)
+            p.setPen(body_col)
+            p.drawText(draw_r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, single_line)
+        elif self.scroll_mode == "vertical":
+            wrap_flags = h_align | Qt.TextFlag.TextWordWrap
+            measured = p.boundingRect(QRectF(0.0, 0.0, inner_w, 20000.0), wrap_flags, active_text)
+            text_h = max(float(self.font_size + 10), float(measured.height()))
+            start_y_offset = body_h * 0.72
+            self._total_scroll_distance = max(120.0, start_y_offset + text_h + 24.0)
             draw_y = body_top + start_y_offset - self.scroll_offset
             draw_rect = QRectF(inner_x, draw_y, inner_w, text_h + 40.0)
             p.setPen(QColor(0, 0, 0, 210))
@@ -716,6 +1319,9 @@ class TextSlideInput(BaseInput):
             p.setPen(body_col)
             p.drawText(draw_rect, wrap_flags | Qt.AlignmentFlag.AlignTop, active_text)
         else:
+            wrap_flags = h_align | Qt.TextFlag.TextWordWrap
+            measured = p.boundingRect(QRectF(0.0, 0.0, inner_w, 20000.0), wrap_flags, active_text)
+            text_h = max(float(self.font_size + 10), float(measured.height()))
             v_align = Qt.AlignmentFlag.AlignVCenter if text_h <= body_h else Qt.AlignmentFlag.AlignTop
             p.setPen(QColor(0, 0, 0, 210))
             p.drawText(body_rect.translated(2.0, 2.0), wrap_flags | v_align, active_text)
@@ -726,7 +1332,7 @@ class TextSlideInput(BaseInput):
 
         # 4. Slide counter badge if multiple slides exist in static mode
         slides = self.get_slides()
-        if len(slides) > 1 and not self.scroll_enabled:
+        if len(slides) > 1 and self.scroll_mode == "none":
             badge_txt = f"{self.current_slide_idx + 1} / {len(slides)}"
             p.setFont(QFont("Sans Serif", 11, QFont.Weight.Bold))
             b_rect = QRectF(bx + bw - 86.0, by + bh - 34.0, 68.0, 24.0)
@@ -1750,10 +2356,16 @@ def serialize_input(inp: BaseInput) -> dict:
         d["font_size"] = inp.font_size
         d["color_preset"] = inp.color_preset
         d["scroll_enabled"] = bool(inp.scroll_enabled)
+        d["scroll_mode"] = inp.scroll_mode
         d["scroll_speed"] = int(inp.scroll_speed)
         d["loop_enabled"] = bool(inp.loop_enabled)
         d["return_to_preview_on_eos"] = bool(inp.return_to_preview_on_eos)
         d["current_slide_idx"] = int(inp.current_slide_idx)
+        d["scraper_source"] = inp.scraper_source
+        d["scraper_mode"] = inp.scraper_mode
+        d["scraper_selector"] = inp.scraper_selector
+        d["scraper_auto_refresh"] = bool(inp.scraper_auto_refresh)
+        d["scraper_interval_sec"] = int(inp.scraper_interval_sec)
     elif isinstance(inp, ImageInput):
         d["filepath"] = inp.filepath
     elif isinstance(inp, VideoFileInput):
@@ -1816,9 +2428,15 @@ def deserialize_input(data: dict, width: int = 1280, height: int = 720) -> BaseI
             font_size=int(data.get("font_size", 32)),
             color_preset=int(data.get("color_preset", 0)),
             scroll_enabled=bool(data.get("scroll_enabled", False)),
-            scroll_speed=int(data.get("scroll_speed", 55)),
+            scroll_mode=data.get("scroll_mode"),
+            scroll_speed=int(data.get("scroll_speed", 65)),
             loop_enabled=bool(data.get("loop_enabled", True)),
             return_to_preview_on_eos=bool(data.get("return_to_preview_on_eos", False)),
+            scraper_source=str(data.get("scraper_source", "")),
+            scraper_mode=str(data.get("scraper_mode", "auto")),
+            scraper_selector=str(data.get("scraper_selector", "")),
+            scraper_auto_refresh=bool(data.get("scraper_auto_refresh", False)),
+            scraper_interval_sec=int(data.get("scraper_interval_sec", 30)),
         )
         if "current_slide_idx" in data:
             inp.select_slide(int(data.get("current_slide_idx", 0)))

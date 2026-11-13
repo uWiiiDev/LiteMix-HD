@@ -19,12 +19,12 @@ from PyQt6.QtWidgets import (
     QGridLayout, QPushButton, QLabel, QSlider, QSpinBox, QFileDialog,
     QInputDialog, QFrame, QScrollArea, QMessageBox, QDialog, QFormLayout,
     QLineEdit, QMenu, QComboBox, QKeySequenceEdit, QSizePolicy,
-    QPlainTextEdit, QCheckBox
+    QPlainTextEdit, QCheckBox, QListWidget, QListWidgetItem
 )
 
 from inputs import (
-    BaseInput, TestPatternInput, LowerThirdInput, TextSlideInput, ImageInput,
-    VideoFileInput, V4L2CameraInput, WaylandPortalInput, WebBrowserInput,
+    BaseInput, TestPatternInput, LowerThirdInput, TextSlideInput, DataScraperEngine,
+    ImageInput, VideoFileInput, V4L2CameraInput, WaylandPortalInput, WebBrowserInput,
     AudioInputBase, MicDeviceInput, SystemAudioInput, AudioFileInput,
     ReplaySourceInput, HighlightsInput,
     serialize_input, deserialize_input, HAS_WEBENGINE
@@ -1287,12 +1287,10 @@ class InputTileWidget(QFrame):
             self.btn_next_slide.clicked.connect(self._on_slide_next)
             ts_row.addWidget(self.btn_next_slide)
 
-            self.btn_scroll_toggle = QPushButton("📜")
-            self.btn_scroll_toggle.setCheckable(True)
-            self.btn_scroll_toggle.setChecked(bool(inp.scroll_enabled))
+            self.btn_scroll_toggle = QPushButton("📄")
             self.btn_scroll_toggle.setFixedSize(26, 17)
             self._refresh_scroll_toggle_button()
-            self.btn_scroll_toggle.toggled.connect(self._on_scroll_mode_toggled)
+            self.btn_scroll_toggle.clicked.connect(self._on_scroll_mode_clicked)
             ts_row.addWidget(self.btn_scroll_toggle)
 
             layout.addLayout(ts_row)
@@ -1402,8 +1400,8 @@ class InputTileWidget(QFrame):
         if self.btn_scroll_toggle:
             self.btn_scroll_toggle.setToolTip(
                 tr(
-                    "Vertikalen Lauftext / Teleprompter-Modus (Auto-Scroll) ein-/ausschalten",
-                    "Toggle vertical scrolling text / Teleprompter mode on/off",
+                    "Modus umschalten: 📄 Statisch/Folien ➔ 📜 Vertikaler Lauftext ➔ 📰 Horizontaler Ticker",
+                    "Cycle mode: 📄 Static/Slides ➔ 📜 Vertical Scroll ➔ 📰 Horizontal Ticker",
                 )
             )
         if self.btn_mute_tile:
@@ -1587,9 +1585,16 @@ class InputTileWidget(QFrame):
             if self.main_win:
                 self.main_win._save_last_preset_silent()
 
+    def _on_scroll_mode_clicked(self):
+        if isinstance(self.inp, TextSlideInput):
+            self.inp.cycle_scroll_mode()
+            self._refresh_scroll_toggle_button()
+            if self.main_win:
+                self.main_win._save_last_preset_silent()
+
     def _on_scroll_mode_toggled(self, checked: bool):
         if isinstance(self.inp, TextSlideInput):
-            self.inp.set_config(scroll_enabled=bool(checked))
+            self.inp.set_config(scroll_mode="vertical" if checked else "none")
             self._refresh_scroll_toggle_button()
             if self.main_win:
                 self.main_win._save_last_preset_silent()
@@ -1597,33 +1602,49 @@ class InputTileWidget(QFrame):
     def _refresh_scroll_toggle_button(self):
         if not self.btn_scroll_toggle or not isinstance(self.inp, TextSlideInput):
             return
-        is_scr = bool(self.inp.scroll_enabled)
-        if self.btn_scroll_toggle.isChecked() != is_scr:
-            self.btn_scroll_toggle.blockSignals(True)
-            self.btn_scroll_toggle.setChecked(is_scr)
-            self.btn_scroll_toggle.blockSignals(False)
-        self.btn_scroll_toggle.setStyleSheet(
-            "padding: 0px 2px; font-size: 9px; background-color: #1e6b9e; color: white; border: 1px solid #40a8f0;"
-            if is_scr else "padding: 0px 2px; font-size: 9px;"
-        )
+        sm = getattr(self.inp, "scroll_mode", "none")
+        if sm == "horizontal":
+            self.btn_scroll_toggle.setText("📰")
+            self.btn_scroll_toggle.setStyleSheet(
+                "padding: 0px 2px; font-size: 9px; background-color: #9e4b1e; color: white; border: 1px solid #ff944d;"
+            )
+        elif sm == "vertical":
+            self.btn_scroll_toggle.setText("📜")
+            self.btn_scroll_toggle.setStyleSheet(
+                "padding: 0px 2px; font-size: 9px; background-color: #1e6b9e; color: white; border: 1px solid #40a8f0;"
+            )
+        else:
+            self.btn_scroll_toggle.setText("📄")
+            self.btn_scroll_toggle.setStyleSheet("padding: 0px 2px; font-size: 9px;")
 
     def _open_text_slide_menu(self):
         if not isinstance(self.inp, TextSlideInput):
             return
         menu = QMenu(self)
         menu.addAction(
-            tr("✎ Mehrzeiligen Texteditor öffnen...", "✎ Open Multi-Line Text Editor..."),
+            tr("✎ Mehrzeiligen Text- & Scraper-Editor öffnen...", "✎ Open Multi-Line Text & Scraper Editor..."),
             lambda: self.main_win.edit_text_slide(self.inp),
         )
-        menu.addSeparator()
-        p_scr = "✓ " if self.inp.scroll_enabled else "   "
         menu.addAction(
-            tr(
-                f"{p_scr}📜 Vertikaler Lauftext / Teleprompter-Modus",
-                f"{p_scr}📜 Vertical Auto-Scroll / Teleprompter Mode",
-            ),
-            lambda: self._on_scroll_mode_toggled(not self.inp.scroll_enabled),
+            tr("🌐 Datei- / Webseiten-Scraper öffnen...", "🌐 Open File / Website Scraper..."),
+            lambda: self.main_win.edit_text_slide(self.inp, open_scraper_dialog=True),
         )
+        if self.inp.scraper_source:
+            menu.addAction(
+                tr("🔄 Scraper-Daten jetzt neu abrufen", "🔄 Refresh Scraper Data Now"),
+                self.inp.trigger_scrape_async,
+            )
+        menu.addSeparator()
+        for m_key, m_label in TextSlideInput.get_scroll_modes():
+            prefix = "✓ " if self.inp.scroll_mode == m_key else "   "
+            menu.addAction(
+                f"{prefix}{m_label}",
+                lambda mk=m_key: (
+                    self.inp.set_config(scroll_mode=mk),
+                    self._refresh_scroll_toggle_button(),
+                    self.main_win._save_last_preset_silent(),
+                ),
+            )
         menu.addSeparator()
         slides = self.inp.get_slides()
         for idx, s_txt in enumerate(slides):
@@ -1676,7 +1697,12 @@ class InputTileWidget(QFrame):
             slides = self.inp.get_slides()
             total_s = len(slides)
             cur_s = min(total_s, self.inp.current_slide_idx + 1) if total_s > 0 else 1
-            stxt = f"📜 {self.inp.scroll_speed}px/s ▾" if self.inp.scroll_enabled else f"📄 #{cur_s}/{total_s} ▾"
+            if self.inp.scroll_mode == "horizontal":
+                stxt = f"📰 {self.inp.scroll_speed}px/s ▾"
+            elif self.inp.scroll_mode == "vertical":
+                stxt = f"📜 {self.inp.scroll_speed}px/s ▾"
+            else:
+                stxt = f"📄 #{cur_s}/{total_s} ▾"
             if self.btn_slide_select.text() != stxt:
                 self.btn_slide_select.setText(stxt)
         if self.btn_scroll_toggle and isinstance(self.inp, TextSlideInput):
@@ -1730,7 +1756,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.5.0"
+    APP_VERSION = "0.6.0"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
@@ -2180,10 +2206,17 @@ class LiteMixMainWindow(QMainWindow):
         )
         add_menu.addAction(
             tr(
-                "📝  Texttafel / Mehrzeiliger Text & Lauftext (Editor)",
-                "📝  Text Slide / Multi-Line Text & Scroller (Editor)",
+                "📝  Texttafel / Mehrzeiliger Text, Lauftext & Ticker (Editor)",
+                "📝  Text Slide / Multi-Line Text, Scroller & Ticker (Editor)",
             ),
             self.add_text_slide_input,
+        )
+        add_menu.addAction(
+            tr(
+                "🌐  Datei- / Webseiten-Scraper (Daten gezielt in Editor / Ticker laden)",
+                "🌐  File / Website Scraper (Extract Data into Editor / Ticker)",
+            ),
+            self.add_scraper_text_input,
         )
         add_menu.addSeparator()
         add_menu.addAction(
@@ -2978,6 +3011,16 @@ class LiteMixMainWindow(QMainWindow):
         self.add_input(ts)
         self.edit_text_slide(ts)
 
+    def add_scraper_text_input(self):
+        ts = TextSlideInput(
+            name=tr("🌐 Live-Daten / Ticker", "🌐 Live Data / Ticker"),
+            headline=tr("LIVE-DATEN", "LIVE DATA"),
+            width=self.mix_w,
+            height=self.mix_h,
+        )
+        self.add_input(ts)
+        self.edit_text_slide(ts, open_scraper_dialog=True)
+
     def add_mic_device_input(self):
         sources, _ = list_audio_devices()
         labels = [lbl for _, lbl in sources]
@@ -3091,18 +3134,179 @@ class LiteMixMainWindow(QMainWindow):
         else:
             lt.set_texts(orig_title, orig_sub, template_id=orig_tpl)
 
-    def edit_text_slide(self, ts: TextSlideInput):
+    def _open_scraper_inspector_dialog(
+        self,
+        parent_dlg: QWidget,
+        ts: TextSlideInput,
+        e_src: QLineEdit,
+        combo_smode: QComboBox,
+        e_sel: QLineEdit,
+        e_body: QPlainTextEdit,
+        combo_bg: QComboBox,
+        combo_scroll_mode: QComboBox,
+        on_applied,
+    ):
+        """
+        Interactive File & Website Scraper Inspector:
+        Fetches structured data items from the specified URL or local file, displays all extracted
+        items with checkboxes ({1}, {2}, ...), and allows transferring selected items directly into
+        the multi-line text editor as lines, slides (---), horizontal ticker (+++), or live placeholders.
+        """
+        ts.set_config(
+            scraper_source=e_src.text().strip(),
+            scraper_mode=str(combo_smode.currentData() or "auto"),
+            scraper_selector=e_sel.text().strip(),
+        )
+        ok, items, msg = ts.trigger_scrape_sync()
+
+        sdlg = QDialog(parent_dlg)
+        sdlg.setWindowTitle(
+            tr(
+                "🌐 Datei- & Webseiten-Scraper – Daten gezielt auswählen & in Editor übernehmen",
+                "🌐 File & Website Scraper – Select & Transfer Data to Editor",
+            )
+        )
+        sdlg.setMinimumWidth(680)
+        sdlg.setMinimumHeight(480)
+        sv = QVBoxLayout(sdlg)
+        sv.setSpacing(6)
+
+        lbl_status = QLabel(msg)
+        lbl_status.setStyleSheet(
+            "color: #00d890; font-weight: bold; font-size: 11px;"
+            if ok else "color: #ff6060; font-weight: bold; font-size: 11px;"
+        )
+        sv.addWidget(lbl_status)
+
+        lbl_hint = QLabel(
+            tr(
+                "Hake die gewünschten Datenfelder an und wähle unten, wie sie in den mehrzeiligen Editor übernommen werden sollen:",
+                "Check the desired data items and choose below how to transfer them into the multi-line editor:",
+            )
+        )
+        lbl_hint.setStyleSheet("color: #b8c4d8; font-size: 10px;")
+        sv.addWidget(lbl_hint)
+
+        list_w = QListWidget()
+        list_w.setStyleSheet(
+            "QListWidget { background-color: #10141d; color: #f0f4fc; border: 1px solid #343e54; "
+            "border-radius: 5px; font-size: 11px; padding: 4px; }"
+        )
+        for idx, item_txt in enumerate(items):
+            li = QListWidgetItem(f"{{{idx + 1}}}  {item_txt}")
+            li.setData(Qt.ItemDataRole.UserRole, (idx + 1, item_txt))
+            li.setFlags(li.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            li.setCheckState(Qt.CheckState.Checked if idx < 10 else Qt.CheckState.Unchecked)
+            list_w.addItem(li)
+        sv.addWidget(list_w, 1)
+
+        sel_btns = QHBoxLayout()
+        btn_all = QPushButton(tr("☑ Alle auswählen", "☑ Select All"))
+        btn_none = QPushButton(tr("☐ Auswahl aufheben", "☐ Select None"))
+        btn_top5 = QPushButton(tr("Top 5 auswählen", "Select Top 5"))
+
+        def _set_checks(mode_str: str):
+            for i in range(list_w.count()):
+                it = list_w.item(i)
+                if mode_str == "all":
+                    it.setCheckState(Qt.CheckState.Checked)
+                elif mode_str == "none":
+                    it.setCheckState(Qt.CheckState.Unchecked)
+                elif mode_str == "top5":
+                    it.setCheckState(Qt.CheckState.Checked if i < 5 else Qt.CheckState.Unchecked)
+
+        btn_all.clicked.connect(lambda: _set_checks("all"))
+        btn_none.clicked.connect(lambda: _set_checks("none"))
+        btn_top5.clicked.connect(lambda: _set_checks("top5"))
+        sel_btns.addWidget(btn_all)
+        sel_btns.addWidget(btn_none)
+        sel_btns.addWidget(btn_top5)
+        sel_btns.addStretch()
+        sv.addLayout(sel_btns)
+
+        def _get_selected_pairs() -> list[tuple[int, str]]:
+            chosen = []
+            for i in range(list_w.count()):
+                it = list_w.item(i)
+                if it.checkState() == Qt.CheckState.Checked:
+                    chosen.append(it.data(Qt.ItemDataRole.UserRole))
+            if not chosen and list_w.currentItem() is not None:
+                chosen.append(list_w.currentItem().data(Qt.ItemDataRole.UserRole))
+            return chosen
+
+        act_grid = QGridLayout()
+        act_grid.setSpacing(6)
+
+        btn_as_lines = QPushButton(tr("📥 Als Textzeilen übernehmen (Ersetzen)", "📥 Transfer as Lines (Replace)"))
+        btn_as_slides = QPushButton(tr("📑 Als einzelne Folien (---) übernehmen", "📑 Transfer as Separate Slides (---)"))
+        btn_as_ticker = QPushButton(tr("📰 Als Horizontal-Ticker (+++) übernehmen", "📰 Transfer as Horizontal Ticker (+++)"))
+        btn_append = QPushButton(tr("➕ An Editor-Text anhängen", "➕ Append to Editor Text"))
+        btn_placeholders = QPushButton(
+            tr(
+                "🔗 Als Live-Platzhalter {1}, {2}... übernehmen (Auto-Update)",
+                "🔗 Insert as Live Placeholders {1}, {2}... (Auto-Update)",
+            )
+        )
+        btn_close = QPushButton(tr("Schließen", "Close"))
+
+        def _transfer(kind: str):
+            pairs = _get_selected_pairs()
+            if not pairs:
+                return
+            texts = [txt for _, txt in pairs]
+            if kind == "lines":
+                e_body.setPlainText("\n".join(texts))
+            elif kind == "slides":
+                e_body.setPlainText("\n---\n".join(texts))
+                idx_none = combo_scroll_mode.findData("none")
+                if idx_none >= 0:
+                    combo_scroll_mode.setCurrentIndex(idx_none)
+            elif kind == "ticker":
+                e_body.setPlainText("\n".join(texts))
+                idx_hor = combo_scroll_mode.findData("horizontal")
+                if idx_hor >= 0:
+                    combo_scroll_mode.setCurrentIndex(idx_hor)
+                idx_bg5 = combo_bg.findData(5)
+                if idx_bg5 >= 0:
+                    combo_bg.setCurrentIndex(idx_bg5)
+            elif kind == "append":
+                cur_txt = e_body.toPlainText().rstrip()
+                e_body.setPlainText((cur_txt + "\n" if cur_txt else "") + "\n".join(texts))
+            elif kind == "placeholders":
+                ph_lines = [f"{{{num}}}" for num, _ in pairs]
+                e_body.setPlainText("\n".join(ph_lines))
+            on_applied()
+            sdlg.accept()
+
+        btn_as_lines.clicked.connect(lambda: _transfer("lines"))
+        btn_as_slides.clicked.connect(lambda: _transfer("slides"))
+        btn_as_ticker.clicked.connect(lambda: _transfer("ticker"))
+        btn_append.clicked.connect(lambda: _transfer("append"))
+        btn_placeholders.clicked.connect(lambda: _transfer("placeholders"))
+        btn_close.clicked.connect(sdlg.reject)
+
+        act_grid.addWidget(btn_as_lines, 0, 0)
+        act_grid.addWidget(btn_as_slides, 0, 1)
+        act_grid.addWidget(btn_as_ticker, 0, 2)
+        act_grid.addWidget(btn_append, 1, 0)
+        act_grid.addWidget(btn_placeholders, 1, 1)
+        act_grid.addWidget(btn_close, 1, 2)
+        sv.addLayout(act_grid)
+
+        sdlg.exec()
+
+    def edit_text_slide(self, ts: TextSlideInput, open_scraper_dialog: bool = False):
         dlg = QDialog(self)
         dlg.setWindowTitle(
             tr(
-                "📝 Mehrzeiliger Text- & Folien-Editor (Statisch & Lauftext)",
-                "📝 Multi-Line Text & Slide Editor (Static & Scroller)",
+                "📝 Mehrzeiliger Text-, Folien-, Ticker- & Scraper-Editor",
+                "📝 Multi-Line Text, Slide, Ticker & Scraper Editor",
             )
         )
-        dlg.setMinimumWidth(680)
-        dlg.setMinimumHeight(540)
+        dlg.setMinimumWidth(720)
+        dlg.setMinimumHeight(600)
         root_v = QVBoxLayout(dlg)
-        root_v.setSpacing(8)
+        root_v.setSpacing(6)
 
         orig_state = {
             "name": ts.name,
@@ -3112,43 +3316,132 @@ class LiteMixMainWindow(QMainWindow):
             "align_mode": ts.align_mode,
             "font_size": ts.font_size,
             "color_preset": ts.color_preset,
-            "scroll_enabled": ts.scroll_enabled,
+            "scroll_mode": ts.scroll_mode,
             "scroll_speed": ts.scroll_speed,
             "slide_idx": ts.current_slide_idx,
+            "scraper_source": ts.scraper_source,
+            "scraper_mode": ts.scraper_mode,
+            "scraper_selector": ts.scraper_selector,
+            "scraper_auto_refresh": ts.scraper_auto_refresh,
+            "scraper_interval_sec": ts.scraper_interval_sec,
         }
 
         form = QFormLayout()
-        form.setSpacing(6)
+        form.setSpacing(5)
 
         e_name = QLineEdit(ts.name)
         e_headline = QLineEdit(ts.headline)
         e_headline.setPlaceholderText(
-            tr("Optionaler Titel oben (leer lassen für reinen Text)", "Optional top headline (leave empty for body text only)")
+            tr("Optionaler Titel / Ticker-Badge (z.B. LIVE-TICKER)", "Optional top headline / ticker badge (e.g. LIVE TICKER)")
         )
         form.addRow(tr("Quellen-Name:", "Source Name:"), e_name)
-        form.addRow(tr("Überschrift / Titel:", "Headline / Title:"), e_headline)
+        form.addRow(tr("Überschrift / Badge:", "Headline / Badge:"), e_headline)
+        root_v.addLayout(form)
+
+        # ================= FILE & WEBSITE DATA SCRAPER PANEL =================
+        scraper_frame = QFrame()
+        scraper_frame.setObjectName("PanelFrame")
+        sf_layout = QGridLayout(scraper_frame)
+        sf_layout.setContentsMargins(6, 5, 6, 5)
+        sf_layout.setSpacing(5)
+
+        lbl_scr_title = QLabel(
+            tr(
+                "<b>🌐 Datei- & Webseiten-Scraper:</b> <i>(URL oder lokale Datei auslesen & gezielt in den Editor laden)</i>",
+                "<b>🌐 File & Website Scraper:</b> <i>(Fetch URL or local file & load selected data into editor)</i>",
+            )
+        )
+        lbl_scr_title.setStyleSheet("color: #38b6ff; font-size: 11px;")
+        sf_layout.addWidget(lbl_scr_title, 0, 0, 1, 4)
+
+        e_src = QLineEdit(ts.scraper_source)
+        e_src.setPlaceholderText(
+            tr(
+                "Web-URL (https://...) oder Dateipfad (/pfad/datei.html, .json, .csv, .xml, .txt)",
+                "Web URL (https://...) or local file path (/path/file.html, .json, .csv, .xml, .txt)",
+            )
+        )
+        btn_pick_file = QPushButton(tr("📂 Datei...", "📂 File..."))
+
+        def _pick_local_scrape_file():
+            p, _ = QFileDialog.getOpenFileName(
+                dlg,
+                tr("Lokale Daten-Datei für Scraper wählen", "Select Local Data File for Scraper"),
+                os.path.expanduser("~"),
+                tr(
+                    "Daten & Text (*.txt *.csv *.json *.xml *.rss *.html *.md);;Alle Dateien (*)",
+                    "Data & Text (*.txt *.csv *.json *.xml *.rss *.html *.md);;All Files (*)",
+                ),
+            )
+            if p:
+                e_src.setText(p)
+
+        btn_pick_file.clicked.connect(_pick_local_scrape_file)
+        sf_layout.addWidget(QLabel(tr("Quelle (URL/Datei):", "Source (URL/File):")), 1, 0)
+        sf_layout.addWidget(e_src, 1, 1, 1, 2)
+        sf_layout.addWidget(btn_pick_file, 1, 3)
+
+        combo_smode = QComboBox()
+        for sm_key, sm_lbl in DataScraperEngine.get_modes():
+            combo_smode.addItem(sm_lbl, sm_key)
+        cur_sm_idx = next((i for i, (k, _) in enumerate(DataScraperEngine.get_modes()) if k == ts.scraper_mode), 0)
+        combo_smode.setCurrentIndex(cur_sm_idx)
+
+        e_sel = QLineEdit(ts.scraper_selector)
+        e_sel.setPlaceholderText(
+            tr(
+                "Optionaler Filter: z.B. h2, tr, .score, #news, title oder 1-5",
+                "Optional selector/filter: e.g. h2, tr, .score, #news, title, or 1-5",
+            )
+        )
+        sf_layout.addWidget(QLabel(tr("Extraktion:", "Extraction:")), 2, 0)
+        sf_layout.addWidget(combo_smode, 2, 1)
+        sf_layout.addWidget(QLabel(tr("Gezielter Filter:", "Target Filter:")), 2, 2)
+        sf_layout.addWidget(e_sel, 2, 3)
+
+        chk_auto_scr = QCheckBox(
+            tr("🔄 Live Auto-Update (für {1}, {2}, {all}, {ticker})", "🔄 Live Auto-Refresh (for {1}, {2}, {all}, {ticker})")
+        )
+        chk_auto_scr.setChecked(ts.scraper_auto_refresh)
+
+        spin_scr_int = QSpinBox()
+        spin_scr_int.setRange(5, 3600)
+        spin_scr_int.setSingleStep(5)
+        spin_scr_int.setSuffix(" s")
+        spin_scr_int.setValue(ts.scraper_interval_sec)
+
+        btn_fetch_inspect = QPushButton(
+            tr("🔍 Daten abrufen & gezielt auswählen...", "🔍 Fetch & Select Data Items...")
+        )
+        btn_fetch_inspect.setObjectName("AddInputBtn")
+
+        sf_layout.addWidget(chk_auto_scr, 3, 0, 1, 2)
+        sf_layout.addWidget(spin_scr_int, 3, 2)
+        sf_layout.addWidget(btn_fetch_inspect, 3, 3)
+        root_v.addWidget(scraper_frame)
 
         # Toolbar above the multi-line text editor
         editor_tools = QHBoxLayout()
         lbl_editor_hint = QLabel(
             tr(
-                "<b>Mehrzeiliger Text:</b> <i>(Tipp: Eine Zeile mit <code>---</code> trennt mehrere Folien)</i>",
-                "<b>Multi-Line Text:</b> <i>(Tip: A line with <code>---</code> separates multiple slides)</i>",
+                "<b>Mehrzeiliger Editor:</b> <i>(<code>---</code> = neue Folie | Platzhalter: <code>{1}</code>, <code>{2}</code>, <code>{all}</code>, <code>{ticker}</code>)</i>",
+                "<b>Multi-Line Editor:</b> <i>(<code>---</code> = new slide | Placeholders: <code>{1}</code>, <code>{2}</code>, <code>{all}</code>, <code>{ticker}</code>)</i>",
             )
         )
-        lbl_editor_hint.setStyleSheet("color: #b8c4d8; font-size: 11px;")
+        lbl_editor_hint.setStyleSheet("color: #b8c4d8; font-size: 10px;")
         editor_tools.addWidget(lbl_editor_hint, 1)
 
         btn_add_bullet = QPushButton(tr("• Aufzählung", "• Bullet"))
         btn_add_SlideBreak = QPushButton(tr("➕ Folientrenner (---)", "➕ Slide Break (---)"))
+        btn_ticker_preset = QPushButton(tr("📰 Als Ticker-Band unten", "📰 Bottom Ticker Preset"))
         editor_tools.addWidget(btn_add_bullet)
         editor_tools.addWidget(btn_add_SlideBreak)
-        root_v.addLayout(form)
+        editor_tools.addWidget(btn_ticker_preset)
         root_v.addLayout(editor_tools)
 
         e_body = QPlainTextEdit()
         e_body.setPlainText(ts.body_text)
-        e_body.setMinimumHeight(150)
+        e_body.setMinimumHeight(125)
         e_body.setStyleSheet(
             "QPlainTextEdit { background-color: #10141d; color: #f0f4fc; border: 1px solid #343e54; "
             "border-radius: 5px; font-size: 12px; padding: 6px; font-family: 'Sans Serif'; }"
@@ -3168,9 +3461,9 @@ class LiteMixMainWindow(QMainWindow):
         btn_add_bullet.clicked.connect(_insert_bullet)
         btn_add_SlideBreak.clicked.connect(_insert_slide_break)
 
-        # Style & Scroll configuration grid
+        # Style & Scroll / Ticker configuration grid
         cfg_grid = QGridLayout()
-        cfg_grid.setSpacing(6)
+        cfg_grid.setSpacing(5)
 
         combo_bg = QComboBox()
         for bg_id, bg_label in TextSlideInput.get_bg_styles():
@@ -3195,40 +3488,51 @@ class LiteMixMainWindow(QMainWindow):
         spin_font.setSuffix(" px")
         spin_font.setValue(ts.font_size)
 
-        chk_scroll = QCheckBox(
-            tr(
-                "📜 Vertikaler Lauftext / Teleprompter / Abspann (Auto-Scroll)",
-                "📜 Vertical Scrolling Text / Teleprompter / Credits (Auto-Scroll)",
-            )
-        )
-        chk_scroll.setChecked(ts.scroll_enabled)
+        combo_scroll_mode = QComboBox()
+        for m_key, m_lbl in TextSlideInput.get_scroll_modes():
+            combo_scroll_mode.addItem(m_lbl, m_key)
+        cur_m_idx = next((i for i, (k, _) in enumerate(TextSlideInput.get_scroll_modes()) if k == ts.scroll_mode), 0)
+        combo_scroll_mode.setCurrentIndex(cur_m_idx)
 
         spin_speed = QSpinBox()
-        spin_speed.setRange(15, 240)
+        spin_speed.setRange(15, 300)
         spin_speed.setSingleStep(5)
         spin_speed.setSuffix(" px/s")
         spin_speed.setValue(ts.scroll_speed)
 
+        def _activate_bottom_ticker_preset():
+            idx_bg5 = combo_bg.findData(5)
+            if idx_bg5 >= 0:
+                combo_bg.setCurrentIndex(idx_bg5)
+            idx_hor = combo_scroll_mode.findData("horizontal")
+            if idx_hor >= 0:
+                combo_scroll_mode.setCurrentIndex(idx_hor)
+            if spin_font.value() > 30:
+                spin_font.setValue(26)
+
+        btn_ticker_preset.clicked.connect(_activate_bottom_ticker_preset)
+
         cfg_grid.addWidget(QLabel(tr("Hintergrund / Tafel:", "Background / Slate:")), 0, 0)
         cfg_grid.addWidget(combo_bg, 0, 1, 1, 3)
 
-        cfg_grid.addWidget(QLabel(tr("Farbschema:", "Color Theme:")), 1, 0)
-        cfg_grid.addWidget(combo_col, 1, 1)
-        cfg_grid.addWidget(QLabel(tr("Ausrichtung:", "Alignment:")), 1, 2)
-        cfg_grid.addWidget(combo_align, 1, 3)
+        cfg_grid.addWidget(QLabel(tr("Lauf- / Anzeigemodus:", "Display / Scroll Mode:")), 1, 0)
+        cfg_grid.addWidget(combo_scroll_mode, 1, 1, 1, 2)
+        cfg_grid.addWidget(spin_speed, 1, 3)
 
-        cfg_grid.addWidget(QLabel(tr("Schriftgröße:", "Font Size:")), 2, 0)
-        cfg_grid.addWidget(spin_font, 2, 1)
-        cfg_grid.addWidget(QLabel(tr("Scroll-Tempo:", "Scroll Speed:")), 2, 2)
-        cfg_grid.addWidget(spin_speed, 2, 3)
-
-        cfg_grid.addWidget(chk_scroll, 3, 0, 1, 4)
+        cfg_grid.addWidget(QLabel(tr("Farbschema:", "Color Theme:")), 2, 0)
+        cfg_grid.addWidget(combo_col, 2, 1)
+        cfg_grid.addWidget(QLabel(tr("Ausrichtung & Schrift:", "Alignment & Font:")), 2, 2)
+        align_font_row = QHBoxLayout()
+        align_font_row.setSpacing(4)
+        align_font_row.addWidget(combo_align, 1)
+        align_font_row.addWidget(spin_font)
+        cfg_grid.addLayout(align_font_row, 2, 3)
         root_v.addLayout(cfg_grid)
 
         # Live preview row (16:9 thumbnail + slide switcher)
         prv_row = QHBoxLayout()
         preview_lbl = QLabel()
-        preview_lbl.setFixedSize(320, 180)
+        preview_lbl.setFixedSize(288, 162)
         preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         preview_lbl.setStyleSheet(
             "background-color: #141923; border: 1px solid #38445e; border-radius: 6px;"
@@ -3249,12 +3553,12 @@ class LiteMixMainWindow(QMainWindow):
 
         lbl_usage_tip = QLabel(
             tr(
-                "• <b>OV1 / OV2:</b> Mit transparentem Hintergrund direkt über das Kamerabild legen.<br>"
-                "• <b>PRV / CUT:</b> Als Vollbild-Texttafel oder Abspann schalten.<br>"
-                "• Auf der Kachel jederzeit per <b>⏮ / ⏭</b> Folien weiterblättern oder per <b>▶</b> Lauftext starten.",
-                "• <b>OV1 / OV2:</b> Overlay directly on top of live camera using transparent styles.<br>"
-                "• <b>PRV / CUT:</b> Switch as a fullscreen presentation slate or credits.<br>"
-                "• Use <b>⏮ / ⏭</b> on the tile to flip slides or <b>▶</b> to start scrolling.",
+                "• <b>Statisch / Folien (📄):</b> Ideal für Agenda, Liedtexte, Zitate & Vollbild-Tafeln.<br>"
+                "• <b>Vertikal-Lauftext (📜):</b> Ideal für Abspann, lange Listen & Teleprompter.<br>"
+                "• <b>Horizontal-Ticker (📰):</b> Ideal als Nachrichten-Laufband am unteren Bildrand über <b>OV1 / OV2</b>.",
+                "• <b>Static / Slides (📄):</b> Ideal for agendas, lyrics, quotes & fullscreen slates.<br>"
+                "• <b>Vertical Scroll (📜):</b> Ideal for credits, long lists & teleprompter.<br>"
+                "• <b>Horizontal Ticker (📰):</b> Ideal as a bottom news crawl bar on <b>OV1 / OV2</b>.",
             )
         )
         lbl_usage_tip.setWordWrap(True)
@@ -3273,20 +3577,26 @@ class LiteMixMainWindow(QMainWindow):
                 align_mode=str(combo_align.currentData() or "center"),
                 font_size=int(spin_font.value()),
                 color_preset=int(combo_col.currentData() or 0),
-                scroll_enabled=bool(chk_scroll.isChecked()),
+                scroll_mode=str(combo_scroll_mode.currentData() or "none"),
                 scroll_speed=int(spin_speed.value()),
+                scraper_source=e_src.text().strip(),
+                scraper_mode=str(combo_smode.currentData() or "auto"),
+                scraper_selector=e_sel.text().strip(),
+                scraper_auto_refresh=bool(chk_auto_scr.isChecked()),
+                scraper_interval_sec=int(spin_scr_int.value()),
             )
             slides = ts.get_slides()
+            mode_desc = dict(TextSlideInput.get_scroll_modes()).get(ts.scroll_mode, "")
             lbl_slide_info.setText(
                 tr(
-                    f"Aktive Vorschau: Folie {ts.current_slide_idx + 1} von {len(slides)}",
-                    f"Active Preview: Slide {ts.current_slide_idx + 1} of {len(slides)}",
+                    f"Vorschau: Folie {ts.current_slide_idx + 1}/{len(slides)}  •  {mode_desc}",
+                    f"Preview: Slide {ts.current_slide_idx + 1}/{len(slides)}  •  {mode_desc}",
                 )
             )
             full_img = ts.get_frame()
             if not full_img.isNull():
                 scaled = full_img.scaled(
-                    316, 176,
+                    284, 158,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
@@ -3295,7 +3605,21 @@ class LiteMixMainWindow(QMainWindow):
                 idx = self.inputs.index(ts)
                 if 0 <= idx < len(self.input_tiles):
                     self.input_tiles[idx].set_index(idx)
+                    self.input_tiles[idx]._refresh_scroll_toggle_button()
 
+        btn_fetch_inspect.clicked.connect(
+            lambda: self._open_scraper_inspector_dialog(
+                dlg,
+                ts,
+                e_src,
+                combo_smode,
+                e_sel,
+                e_body,
+                combo_bg,
+                combo_scroll_mode,
+                _apply_current_to_source,
+            )
+        )
         btn_prv_s.clicked.connect(lambda: (ts.prev_slide(), _apply_current_to_source()))
         btn_nxt_s.clicked.connect(lambda: (ts.next_slide(), _apply_current_to_source()))
         e_name.textChanged.connect(lambda _: _apply_current_to_source())
@@ -3305,9 +3629,27 @@ class LiteMixMainWindow(QMainWindow):
         combo_col.currentIndexChanged.connect(lambda _: _apply_current_to_source())
         combo_align.currentIndexChanged.connect(lambda _: _apply_current_to_source())
         spin_font.valueChanged.connect(lambda _: _apply_current_to_source())
-        chk_scroll.toggled.connect(lambda _: _apply_current_to_source())
+        combo_scroll_mode.currentIndexChanged.connect(lambda _: _apply_current_to_source())
         spin_speed.valueChanged.connect(lambda _: _apply_current_to_source())
+        chk_auto_scr.toggled.connect(lambda _: _apply_current_to_source())
+        spin_scr_int.valueChanged.connect(lambda _: _apply_current_to_source())
         _apply_current_to_source()
+
+        if open_scraper_dialog and e_src.text().strip():
+            QTimer.singleShot(
+                80,
+                lambda: self._open_scraper_inspector_dialog(
+                    dlg,
+                    ts,
+                    e_src,
+                    combo_smode,
+                    e_sel,
+                    e_body,
+                    combo_bg,
+                    combo_scroll_mode,
+                    _apply_current_to_source,
+                ),
+            )
 
         btn_row = QHBoxLayout()
         btn_cancel = QPushButton(tr("Abbrechen", "Cancel"))
@@ -3334,14 +3676,20 @@ class LiteMixMainWindow(QMainWindow):
                 align_mode=orig_state["align_mode"],
                 font_size=orig_state["font_size"],
                 color_preset=orig_state["color_preset"],
-                scroll_enabled=orig_state["scroll_enabled"],
+                scroll_mode=orig_state["scroll_mode"],
                 scroll_speed=orig_state["scroll_speed"],
+                scraper_source=orig_state["scraper_source"],
+                scraper_mode=orig_state["scraper_mode"],
+                scraper_selector=orig_state["scraper_selector"],
+                scraper_auto_refresh=orig_state["scraper_auto_refresh"],
+                scraper_interval_sec=orig_state["scraper_interval_sec"],
             )
             ts.select_slide(orig_state["slide_idx"])
             if ts in self.inputs:
                 idx = self.inputs.index(ts)
                 if 0 <= idx < len(self.input_tiles):
                     self.input_tiles[idx].set_index(idx)
+                    self.input_tiles[idx]._refresh_scroll_toggle_button()
 
     # ================= SWITCHING & TRANSITIONS =================
     def set_preview(self, idx: int):
