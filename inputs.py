@@ -162,6 +162,14 @@ class LowerThirdInput(BaseInput):
         (2, "3: Modern Minimal / Talk Pill (Emerald)"),
     ]
 
+    @classmethod
+    def get_templates(cls) -> list[tuple[int, str]]:
+        return [
+            (0, tr("1: Studio Cyan (Klassisch)", "1: Studio Cyan (Classic)")),
+            (1, tr("2: TV News / Live-Banner (Rot/Weiß)", "2: TV News / Live Banner (Red/White)")),
+            (2, tr("3: Modern Minimal / Talk-Pill (Smaragd)", "3: Modern Minimal / Talk Pill (Emerald)")),
+        ]
+
     def __init__(
         self,
         name: str = "Bauchbinde (Overlay)",
@@ -1058,6 +1066,15 @@ class ReplaySourceInput(GStreamerBaseInput):
         (0.75, "0.75× (Slow Motion)"),
         (1.00, "1.00× (Normal Speed)"),
     ]
+
+    @classmethod
+    def get_speed_options(cls) -> list[tuple[float, str]]:
+        return [
+            (0.25, tr("0.25× (Super-Zeitlupe / Viertel-Tempo)", "0.25× (Super Slow-Mo / Quarter Speed)")),
+            (0.50, tr("0.50× (Halbes Tempo – Standard)", "0.50× (Half Speed – Default)")),
+            (0.75, tr("0.75× (Leichte Zeitlupe)", "0.75× (Light Slow Motion)")),
+            (1.00, tr("1.00× (Echtzeit / Normaltempo)", "1.00× (Real-Time / Normal Speed)")),
+        ]
 
     def __init__(self, filepath: str = "", width: int = 1280, height: int = 720, playback_rate: float = 0.5):
         super().__init__(tr("⏪ Letztes Replay", "⏪ Last Replay"), width, height)

@@ -1592,7 +1592,7 @@ class InputTileWidget(QFrame):
 class LiteMixMainWindow(QMainWindow):
     """Compact main window in vMix layout optimized for notebooks."""
 
-    APP_VERSION = "0.4.1"
+    APP_VERSION = "0.4.2"
     GITHUB_REPO = "uWiiiDev/LiteMix-HD"
     GITHUB_BRANCH = "main"
     GRID_COLS = 5
